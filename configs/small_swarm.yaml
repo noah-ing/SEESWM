@@ -1,0 +1,28 @@
+# Small swarm for quick experiments
+
+num_agents: 20
+topology: small_world
+hidden_dim: 64
+message_passing_rounds: 2
+
+num_perception: 5
+num_reasoning: 5
+num_memory: 5
+num_planning: 5
+
+learning_rate: 0.001
+batch_size: 16
+num_epochs: 50
+device: cpu
+
+grid_size: 32
+num_resources: 10
+num_hazards: 5
+
+dopamine_sensitivity: 1.0
+curiosity_weight: 0.5
+fear_weight: 0.3
+
+log_dir: logs/small
+save_every: 5
+log_every: 1

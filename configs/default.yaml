@@ -1,0 +1,34 @@
+# Default configuration for SEESWM
+
+# Swarm configuration
+num_agents: 100
+topology: small_world  # random, small_world, scale_free, modular, hierarchical
+hidden_dim: 128
+message_passing_rounds: 3
+
+# Agent distribution
+num_perception: 25
+num_reasoning: 25
+num_memory: 25
+num_planning: 25
+
+# Training
+learning_rate: 0.0001
+batch_size: 32
+num_epochs: 100
+device: cpu
+
+# Environment
+grid_size: 64
+num_resources: 20
+num_hazards: 10
+
+# Neuromodulation
+dopamine_sensitivity: 1.0
+curiosity_weight: 0.5
+fear_weight: 0.3
+
+# Logging
+log_dir: logs
+save_every: 10
+log_every: 1

@@ -1,0 +1,28 @@
+# Large swarm for scaling experiments
+
+num_agents: 500
+topology: hierarchical
+hidden_dim: 256
+message_passing_rounds: 5
+
+num_perception: 125
+num_reasoning: 125
+num_memory: 125
+num_planning: 125
+
+learning_rate: 0.00005
+batch_size: 64
+num_epochs: 200
+device: cuda
+
+grid_size: 128
+num_resources: 100
+num_hazards: 50
+
+dopamine_sensitivity: 1.0
+curiosity_weight: 0.7
+fear_weight: 0.3
+
+log_dir: logs/large
+save_every: 20
+log_every: 5
