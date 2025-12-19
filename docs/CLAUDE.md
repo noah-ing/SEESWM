@@ -38,7 +38,6 @@ This file tracks progress, decisions, and context for AI-assisted development se
 
 ### In Progress
 - [ ] Visualization and TensorBoard integration
-- [ ] Full integration testing with all components
 
 ### Next Steps (Phase 3 - Specialization)
 1. Agent type specialization with different architectures
@@ -126,6 +125,18 @@ This file tracks progress, decisions, and context for AI-assisted development se
 - Created exploration tracking (coverage, novelty metrics)
 - Built curiosity-driven training script with comparison mode
 - Phase 2 complete, ready for Phase 3
+
+### Session 3
+- Migrated to MacBook (CLI teleport)
+- Fixed bug in modular topology: nodes not being added explicitly
+- Fixed bug in hierarchical topology: same issue
+- Fixed test_agent_communication: set networks to eval mode for determinism
+- All 40 tests passing
+- Verified Phase 2 end-to-end training works:
+  - Environment creates correctly (16x16 grid, 137 obs dim)
+  - Swarm trains with PPO + curiosity rewards
+  - World model loss decreases during training
+- Ready for Phase 3 implementation
 
 ---
 

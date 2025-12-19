@@ -133,6 +133,9 @@ class SwarmGraph:
         graph = nx.Graph()
         n = self.config.num_agents
 
+        # Add all nodes first to ensure they exist
+        graph.add_nodes_from(range(n))
+
         # Create clusters
         cluster_sizes = [
             self.config.num_perception,
@@ -169,6 +172,9 @@ class SwarmGraph:
     def _build_hierarchical_topology(self) -> nx.Graph:
         """Build hierarchical topology: perception -> reasoning -> planning."""
         graph = nx.Graph()
+
+        # Add all nodes first to ensure they exist
+        graph.add_nodes_from(range(self.config.num_agents))
 
         # Layer assignments
         perception_ids = list(range(self.config.num_perception))

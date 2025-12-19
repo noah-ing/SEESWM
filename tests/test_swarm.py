@@ -116,6 +116,10 @@ class TestSwarmGraph:
         )
         swarm = SwarmGraph(config=config)
 
+        # Set all agents to eval mode (disables dropout for deterministic output)
+        for agent in swarm.agents.values():
+            agent.network.eval()
+
         # Run with same input twice - outputs should be consistent
         inputs = torch.randn(1, config.input_dim)
         swarm.reset(batch_size=1)
