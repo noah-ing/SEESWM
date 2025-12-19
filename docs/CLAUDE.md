@@ -4,8 +4,8 @@ This file tracks progress, decisions, and context for AI-assisted development se
 
 ## Project Status
 
-**Current Phase**: Phase 2 - World Modeling (Complete)
-**Last Updated**: Session 2
+**Current Phase**: Phase 3 - Specialization (Complete)
+**Last Updated**: Session 4
 
 ### Completed
 
@@ -36,14 +36,35 @@ This file tracks progress, decisions, and context for AI-assisted development se
 - [x] Alternative curiosity modules (RND, ICM)
 - [x] Curiosity-driven training script with comparison experiments
 
+#### Phase 3 - Specialization
+- [x] Specialized agent architectures per type:
+  - PerceptionNetwork: Attention-based with multi-scale processing, saliency detection
+  - ReasoningNetwork: Transformer-style with working memory slots
+  - MemoryNetwork: Key-value memory with content-based addressing
+  - PlanningNetwork: Goal-conditioned with hierarchical subgoal generation
+- [x] SpecializedAgent factory class that builds appropriate networks
+- [x] Typed message passing system:
+  - MessageType enum (PERCEPT, SALIENCY, INFERENCE, QUERY, MEMORY_RECALL, GOAL, etc.)
+  - TypedMessage with semantic routing metadata
+  - TypedMessageBus with type-aware filtering
+  - MessageEncoder/Decoder for type embedding
+  - TypeAwareAggregator for type-specific processing
+- [x] Role emergence tracking:
+  - Specialization entropy metrics
+  - Type concentration per agent
+  - Message pattern analysis
+- [x] SpecializedSwarmGraph integrating all Phase 3 components
+- [x] Specialization training script with comparison experiments
+- [x] Comprehensive test suite (32 Phase 3 tests, 72 total)
+
 ### In Progress
 - [ ] Visualization and TensorBoard integration
 
-### Next Steps (Phase 3 - Specialization)
-1. Agent type specialization with different architectures
-2. Hierarchical topology experiments
-3. Role emergence metrics
-4. Typed message passing
+### Next Steps (Phase 4 - Collective Intelligence)
+1. Multi-agent coordination tasks
+2. Emergent communication protocols
+3. Swarm-level goal decomposition
+4. Neuromodulation-guided learning
 
 ## Architecture Decisions
 
@@ -84,19 +105,33 @@ This file tracks progress, decisions, and context for AI-assisted development se
 - Resource respawn after configurable delay
 - Internal walls for navigation challenge
 
+### Specialized Agents (Phase 3)
+- Each agent type has distinct architectural inductive biases
+- Perception: Spatial attention + multi-scale feature pyramid
+- Reasoning: Transformer blocks + working memory slots
+- Memory: Key-value memory bank with content-based addressing
+- Planning: Goal-conditioned policy with value estimation
+
+### Typed Messaging (Phase 3)
+- Messages carry semantic type (PERCEPT, INFERENCE, GOAL, etc.)
+- Agents filter messages based on type relevance
+- Control messages (REWARD_SIGNAL, NOVELTY_SIGNAL) modulate processing
+- TypeAwareAggregator processes content vs control messages differently
+
 ## Key Files
 
 | Component | Primary Files |
 |-----------|--------------|
-| Agents | `src/agents/micro_agent.py` |
-| Swarm | `src/swarm/graph.py`, `src/swarm/messaging.py` |
+| Agents | `src/agents/micro_agent.py`, `src/agents/specializations.py` |
+| Swarm | `src/swarm/graph.py`, `src/swarm/specialized_graph.py` |
+| Messaging | `src/swarm/messaging.py`, `src/swarm/typed_messaging.py` |
 | World Model | `src/world_model/jepa.py` |
 | Environment | `src/environment/cosmos.py` |
 | Neuromodulation | `src/neuromod/signals.py` |
 | Self-Model | `src/self_model/capabilities.py` |
 | Training | `src/training/__init__.py` (PPO), `src/training/exploration.py` |
-| Experiments | `experiments/train_curiosity.py`, `experiments/train_basic.py` |
-| Tests | `tests/test_*.py` |
+| Experiments | `experiments/train_curiosity.py`, `experiments/train_specialization.py` |
+| Tests | `tests/test_*.py` (72 tests total) |
 
 ## Performance Notes
 
@@ -137,6 +172,33 @@ This file tracks progress, decisions, and context for AI-assisted development se
   - Swarm trains with PPO + curiosity rewards
   - World model loss decreases during training
 - Ready for Phase 3 implementation
+
+### Session 4
+- Implemented Phase 3: Specialization (full implementation)
+- Created specialized agent architectures (`src/agents/specializations.py`):
+  - PerceptionNetwork: Multi-head spatial attention, multi-scale processing, saliency detection
+  - ReasoningNetwork: Transformer blocks with working memory slots
+  - MemoryNetwork: Key-value memory bank with content-based read/write
+  - PlanningNetwork: Goal-conditioned policy with hierarchical subgoal generation
+  - SpecializedAgent factory class
+- Created typed message passing (`src/swarm/typed_messaging.py`):
+  - MessageType enum with 12 semantic types
+  - TypedMessage with source type, priority, metadata
+  - TypedMessageBus with type-aware routing and filtering
+  - MessageFilter for flexible message acceptance
+  - MessageEncoder/Decoder for type embedding
+  - TypeAwareAggregator separating content vs control messages
+- Created SpecializedSwarmGraph (`src/swarm/specialized_graph.py`):
+  - Integrates specialized agents with typed messaging
+  - RoleEmergenceTracker for specialization metrics
+  - Supports all topology types
+- Created specialization training script (`experiments/train_specialization.py`):
+  - SpecializationPPOTrainer adapted for specialized swarms
+  - Comparison experiment: specialized vs generic
+  - Role emergence analysis tools
+- Fixed dimension mismatch bug: aggregators now use output_dim for message content
+- All 72 tests passing (32 new Phase 3 tests)
+- Phase 3 complete, ready for Phase 4
 
 ---
 
