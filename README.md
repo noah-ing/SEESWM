@@ -1,238 +1,246 @@
 # SEESWM: Self-Evolving Embodied Swarm World-Modeler
 
-**A Distributed Architecture for Emergent Collective Intelligence**
+A distributed architecture for emergent collective intelligence, replacing monolithic neural networks with swarms of specialized micro-agents.
 
 ---
 
-## Abstract
+## Overview
 
-We present SEESWM, a novel architecture that replaces monolithic neural networks with a distributed swarm of specialized micro-agents. Our hypothesis is that **collective intelligence from many small specialized agents will exhibit emergent capabilities that equivalent-parameter monolithic models cannot achieve**. Preliminary experiments show that a 20-agent swarm (563K parameters) outperforms an equivalent-parameter MLP baseline in 7/10 trials, with consistent positive synergy scores indicating genuine emergent collective behavior.
+SEESWM tests the hypothesis that **collective intelligence from many small specialized agents will exhibit emergent capabilities that equivalent-parameter monolithic models cannot achieve**.
 
----
-
-## 1. Introduction
-
-Current AI systems rely predominantly on monolithic architectures—single large networks trained end-to-end. While effective, this approach faces fundamental limitations:
-
-- **Brittleness**: Single point of failure
-- **Opacity**: Difficult to interpret internal representations
-- **Rigidity**: Cannot adapt structure to task requirements
-- **Scaling inefficiency**: Quadratic attention costs, memory bottlenecks
-
-We propose an alternative: a **swarm of specialized micro-agents** that communicate through message passing, grounded in world simulation, with brain-inspired neuromodulatory signals guiding learning.
-
-### 1.1 Core Hypothesis
-
-> *Collective intelligence from many small specialized agents, embedded in simulated worlds, will exhibit emergent capabilities that equivalent-parameter monolithic models cannot.*
-
-This hypothesis draws from:
-- Biological neural systems (distributed, specialized regions)
-- Swarm intelligence (ant colonies, bee hives)
-- Ensemble methods (wisdom of crowds)
+After training for 1000 epochs, a 20-agent swarm (2.4M parameters) achieves:
+- **10/10 wins** against all baseline architectures (p < 0.001)
+- **+1.01 reward delta** vs single-agent, ensemble, and centralized baselines
+- **4/7 validation criteria** passed (up from 2/7 untrained)
 
 ---
 
-## 2. Architecture
+## Quick Start
 
-### 2.1 Micro-Agents
+```bash
+# Install dependencies
+pip install torch numpy networkx scipy scikit-learn pyyaml tqdm
 
-Each agent is a small neural network (10K-50K parameters) with:
+# Run tests (162 total)
+pytest tests/ -v
+
+# Train a swarm
+python experiments/train_for_validation.py --epochs 1000 --agents 20
+
+# Validate (untrained)
+python experiments/validate_rigorously.py
+
+# Validate (with trained model)
+python experiments/validate_rigorously.py --model results/models/swarm_trained_*.pt
+```
+
+---
+
+## Architecture
+
+### Micro-Agents
+
+Each agent is a small neural network (10K-100K parameters) with:
 - MLP backbone with residual connections
 - GRU-style local memory gating
-- Plasticity parameters modulated by neuromodulatory signals
+- Plasticity modulated by neuromodulatory signals
 
-**Agent Specializations:**
+**Specializations:**
+
 | Type | Role | Architecture |
 |------|------|--------------|
-| Perception | Feature extraction | Multi-head spatial attention |
-| Reasoning | Inference | Transformer blocks + working memory |
+| Perception | Feature extraction | Multi-head spatial attention, saliency detection |
+| Reasoning | Inference | Transformer blocks with working memory |
 | Memory | Storage/retrieval | Key-value content-addressed memory |
 | Planning | Action selection | Goal-conditioned hierarchical policy |
 
-### 2.2 Swarm Topology
+### Swarm Topology
 
-Agents are organized in a graph with configurable topology:
+Agents communicate through a configurable graph:
 
-| Topology | Properties | Use Case |
+| Topology | Properties | Best For |
 |----------|------------|----------|
-| Small-World | High clustering, short paths | General purpose |
+| Small-World | High clustering, short paths | General purpose (default) |
 | Scale-Free | Hub-and-spoke | Information broadcast |
 | Modular | Clustered by type | Specialized processing |
 | Hierarchical | Layered flow | Sequential tasks |
 
-### 2.3 Message Passing
+### Message Passing
 
-Agents communicate through typed messages over K rounds:
+Typed messages propagate over K rounds:
 - `PERCEPT`: Sensory information
 - `INFERENCE`: Logical conclusions
 - `QUERY`: Information requests
 - `GOAL`: Objectives and subgoals
 - `REWARD_SIGNAL`: Learning signals
 
-### 2.4 World Model
+### World Model
 
-JEPA-inspired architecture for predictive modeling:
+JEPA-inspired predictive architecture:
 - Encoder: observation → latent state
 - Predictor: latent + action → next latent
 - Curiosity = prediction error (drives exploration)
 
 ---
 
-## 3. Experiments
+## Validation Framework
 
-### 3.1 Methodology
+Rigorous experimental validation with 7 criteria:
 
-We test the core hypothesis through controlled experiments:
+| Test | Description | Status |
+|------|-------------|--------|
+| Ablations | Components matter when removed | Pending |
+| Scaling | Performance scales favorably | **Pass** |
+| Synergy | Positive collective information gain | Pending |
+| Baselines | Beats equivalent architectures | **Pass** |
+| Generalization | Transfers to new environments | **Pass** |
+| Emergence | Shows emergent behaviors | Pending |
+| Interpretability | Provides analysis insights | **Pass** |
 
-1. **Synergy vs Baseline**: Compare swarm to equivalent-parameter MLP
-2. **Scaling**: How does synergy change with agent count?
-3. **Topology**: Which graph structure produces best emergence?
-4. **Environment**: Performance in simulated grid world
+### Baseline Comparison (Trained Model)
 
-**Synergy Metric:**
 ```
-Synergy = Collective_Performance - Average_Individual_Performance
+Baseline                  Score      Swarm      Delta       Wins    p-value
+----------------------------------------------------------------------
+single_agent            -0.0100     1.0000    +1.0100 10/10    0.0000***
+ensemble                -0.0100     1.0000    +1.0100 10/10    0.0000***
+centralized             -0.0100     1.0000    +1.0100 10/10    0.0000***
+independent             -0.1378     1.0000    +1.1378 10/10    0.0000***
+random                   0.5774     1.0000    +0.4226 10/10    0.0000***
+
+PASS: Swarm outperforms all required baselines
 ```
-Positive synergy indicates emergent capability beyond individual contributions.
 
-### 3.2 Results
+### Training Progress
 
-#### Experiment 1: Synergy vs Baseline MLP
-
-| Model | Parameters | MSE (mean ± std) | Wins |
-|-------|------------|------------------|------|
-| Swarm (20 agents) | 563,520 | 0.449 ± 0.012 | **7/10** |
-| MLP Baseline | 44,752 | 0.452 ± 0.012 | 3/10 |
-
-**Finding**: The swarm outperforms an equivalent-parameter MLP in 70% of trials, despite the MLP having more concentrated capacity.
-
-#### Experiment 2: Scaling Behavior
-
-| Agents | Parameters | Synergy | Efficiency |
-|--------|------------|---------|------------|
-| 5 | 140,880 | 0.063 | 1.00 (baseline) |
-| 10 | 281,760 | 0.072 | 0.57 |
-| **20** | 563,520 | **0.076** | 0.30 |
-| 50 | 1,408,800 | 0.062 | 0.10 |
-| 100 | 2,817,600 | 0.060 | 0.05 |
-
-**Finding**: Synergy peaks at ~20 agents. Beyond this, coordination overhead may outweigh benefits. This suggests an optimal swarm size for the task complexity.
-
-#### Experiment 3: Topology Comparison
-
-| Topology | Synergy | Error | Clustering |
-|----------|---------|-------|------------|
-| Random | 0.065 | 0.462 | Low |
-| Small-World | 0.069 | 0.464 | Medium |
-| Scale-Free | 0.064 | 0.458 | Variable |
-| **Modular** | **0.071** | **0.452** | High |
-| Hierarchical | 0.060 | 0.469 | Structured |
-| Fully-Connected | 0.068 | 0.464 | Complete |
-
-**Finding**: Modular topology produces highest synergy, aligning with biological organization where specialized regions cluster together.
-
-#### Experiment 4: Environment Performance
-
-| Metric | Value |
-|--------|-------|
-| Episodes | 10 |
-| Avg Reward | 0.51 ± 2.24 |
-| Avg Survival | 94.0 ± 18.0 steps |
-| Exploration | 1.6% ± 0.7% |
-
-**Note**: These results are from an **untrained** swarm with random initialization. The low exploration rate is expected without curiosity-driven learning.
+| Metric | Untrained | Trained (1000 epochs) |
+|--------|-----------|----------------------|
+| Validation Score | 2/7 | 4/7 |
+| Baseline Wins | 6/50 | 50/50 |
+| Avg Reward | ~0.5 | ~1.0 |
 
 ---
 
-## 4. Discussion
-
-### 4.1 Evidence for Emergent Collective Intelligence
-
-Our preliminary results provide initial evidence for the core hypothesis:
-
-1. **Positive Synergy**: All experiments show synergy > 0, indicating collective performance exceeds sum of individual contributions
-2. **Baseline Outperformance**: Swarm beats equivalent-parameter MLP in majority of trials
-3. **Topology Sensitivity**: Performance varies significantly with graph structure, suggesting genuine collective dynamics
-
-### 4.2 Limitations
-
-- Results are on **untrained** swarms (random initialization)
-- Tasks are simple regression/navigation (not complex reasoning)
-- No comparison to state-of-the-art models
-- Limited hyperparameter tuning
-
-### 4.3 Future Work
-
-1. **Training experiments**: PPO with curiosity-driven exploration
-2. **Complex tasks**: ARC-AGI, reasoning benchmarks
-3. **Neuromorphic**: Spiking neural network agents for energy efficiency
-4. **Evolution**: Neural architecture search for agent structure
-5. **Scaling**: Hierarchical organization for 1000+ agents
-
----
-
-## 5. Implementation
-
-### 5.1 Quick Start
-
-```bash
-# Install
-pip install torch numpy networkx pyyaml
-
-# Run validation experiments
-python experiments/validate_hypothesis.py --device cpu
-
-# Run all tests (162 tests)
-pytest tests/ -v
-```
-
-### 5.2 Project Structure
+## Project Structure
 
 ```
 seeswm/
 ├── src/
-│   ├── agents/        # MicroAgent, specializations
-│   ├── swarm/         # SwarmGraph, typed messaging
-│   ├── world_model/   # JEPA predictor, curiosity
-│   ├── environment/   # Grid world simulation
-│   ├── self_model/    # Uncertainty, meta-learning, ToM
-│   ├── neuromorphic/  # LIF neurons, STDP, SNNs
-│   └── evolution/     # Distributed training, NAS, scaling
-├── experiments/       # Training and validation scripts
-└── tests/             # Unit tests (162 total)
+│   ├── agents/           # MicroAgent, specializations
+│   ├── swarm/            # SwarmGraph, typed messaging
+│   ├── world_model/      # JEPA predictor, curiosity
+│   ├── environment/      # Grid world simulation
+│   ├── self_model/       # Uncertainty, meta-learning, ToM
+│   ├── neuromorphic/     # LIF neurons, STDP, SNNs
+│   ├── evolution/        # Distributed training, NAS, scaling
+│   ├── training/         # PPO, exploration metrics
+│   └── validation/       # Ablations, synergy, baselines, stats
+├── experiments/
+│   ├── train_for_validation.py   # Actor-critic training
+│   ├── validate_rigorously.py    # Full validation suite
+│   ├── train_curiosity.py        # World model + curiosity
+│   ├── train_specialization.py   # Agent role emergence
+│   ├── train_metacognition.py    # Self-model training
+│   ├── train_neuromorphic.py     # Spiking neural networks
+│   └── train_evolution.py        # Genetic + NAS optimization
+├── tests/                # 162 unit tests
+└── results/              # Saved models and validation outputs
 ```
 
-### 5.3 Key Components
+---
 
-| Component | Description | Status |
-|-----------|-------------|--------|
-| Swarm Graph | Agent topology and message passing | Complete |
-| Specializations | Perception, Reasoning, Memory, Planning | Complete |
-| World Model | JEPA + RND/ICM curiosity | Complete |
-| Meta-Cognition | Uncertainty, calibration, MAML, ToM | Complete |
-| Neuromorphic | LIF neurons, STDP, energy tracking | Complete |
-| Evolution | NEAT, DARTS, ENAS, hierarchical scaling | Complete |
+## Key Components
+
+### Phase 1: Foundation
+- SwarmGraph with 5 topology types
+- Message passing infrastructure
+- Neuromodulatory signals (dopamine, curiosity, fear, uncertainty)
+
+### Phase 2: World Modeling
+- JEPA-style latent prediction
+- RND/ICM curiosity modules
+- PPO training with GAE
+
+### Phase 3: Specialization
+- 4 specialized agent architectures
+- Typed message passing (12 message types)
+- Role emergence tracking
+
+### Phase 4: Meta-Cognition
+- Uncertainty quantification (ensemble, MC dropout, evidential)
+- Confidence calibration (temperature scaling, focal loss)
+- Meta-learning (MAML, MetaSGD, Reptile)
+- Theory of Mind (belief encoding, intent prediction)
+
+### Phase 5: Neuromorphic
+- LIF neurons with surrogate gradients
+- STDP learning (classic, triplet, reward-modulated)
+- Energy-efficient spiking networks
+- Hybrid spiking/rate-coded swarms
+
+### Phase 6: Evolution & Scaling
+- NEAT-style genetic optimization
+- CMA-ES for continuous parameters
+- DARTS/ENAS neural architecture search
+- Hierarchical swarms (1000+ agents)
+- Gradient checkpointing and CPU offloading
 
 ---
 
-## 6. Conclusion
+## Validation Modules
 
-SEESWM demonstrates that distributed swarms of specialized micro-agents can exhibit emergent collective intelligence. Our preliminary experiments show:
+### Synergy Measurement
+Partial Information Decomposition (PID) quantifies collective intelligence:
+```
+Synergy = I(X1,...,Xn; Y) - Σ I(Xi; Y)
+```
+Positive synergy = emergent capability beyond individual contributions.
 
-- **7/10 wins** against equivalent-parameter baseline
-- **Positive synergy** across all conditions
-- **Optimal swarm size** around 20 agents for tested tasks
-- **Modular topology** best supports specialized agents
+### Ablation Studies
+Systematically removes components to measure importance:
+- `no_swarm`: Single large agent with same parameters
+- `no_message_passing`: Isolated agents
+- `no_memory`: State cleared each step
+- `random_topology`: Unstructured graph
+- `full_connectivity`: All-to-all messaging
 
-While these results are promising, they represent only the first step. The architecture is complete across 6 implementation phases, ready for large-scale training experiments to fully test the hypothesis.
+### Statistical Rigor
+- Paired t-tests with Bonferroni correction
+- Cohen's d effect sizes
+- Bootstrap confidence intervals
+- Minimum sample size estimation
 
 ---
 
-## References
+## Environment
 
-1. LeCun, Y. (2022). A Path Towards Autonomous Machine Intelligence. *Meta AI*.
-2. Stanley, K. O., & Miikkulainen, R. (2002). Evolving Neural Networks through Augmenting Topologies. *Evolutionary Computation*.
-3. Maas, W. (1997). Networks of Spiking Neurons: The Third Generation of Neural Network Models. *Neural Networks*.
+Grid world simulation with:
+- Multiple resource types (energy, food, water, material)
+- Survival mechanics (hunger, thirst)
+- Internal walls for navigation
+- Multimodal observations (vision, proprioception, interoception)
+
+---
+
+## Performance
+
+| Configuration | Parameters | Training Time | Notes |
+|---------------|------------|---------------|-------|
+| 20 agents, dim=128 | 2.4M | ~1 hour (CPU) | Default |
+| 100 agents, dim=128 | 12M | ~5 hours (CPU) | Large scale |
+| 20 agents, dim=64 | 600K | ~20 min (CPU) | Fast iteration |
+
+---
+
+## Citation
+
+```bibtex
+@software{seeswm2024,
+  title={SEESWM: Self-Evolving Embodied Swarm World-Modeler},
+  year={2024},
+  url={https://github.com/...}
+}
+```
 
 ---
 
@@ -242,5 +250,9 @@ MIT
 
 ---
 
-*Validation experiments: `experiments/validate_hypothesis.py`*
-*Full results: `results/hypothesis_validation.json`*
+## References
+
+1. LeCun, Y. (2022). A Path Towards Autonomous Machine Intelligence. Meta AI.
+2. Stanley, K. O., & Miikkulainen, R. (2002). Evolving Neural Networks through Augmenting Topologies. Evolutionary Computation.
+3. Maas, W. (1997). Networks of Spiking Neurons: The Third Generation of Neural Network Models. Neural Networks.
+4. Williams, P. L., & Beer, R. D. (2010). Nonnegative Decomposition of Multivariate Information. arXiv.

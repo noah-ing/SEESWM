@@ -44,6 +44,8 @@ logs/
 *.pt
 *.pth
 checkpoints/
+results/models/
+results/validation/
 
 # OS
 .DS_Store
