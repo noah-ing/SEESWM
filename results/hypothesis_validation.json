@@ -1,0 +1,172 @@
+{
+  "synergy_vs_baseline": {
+    "experiment_name": "synergy_vs_baseline",
+    "config": {
+      "num_agents": 20,
+      "num_trials": 10
+    },
+    "metrics": {
+      "swarm_error_mean": 0.4485743820667267,
+      "swarm_error_std": 0.011679146254324056,
+      "baseline_error_mean": 0.45223079323768617,
+      "baseline_error_std": 0.012426581315848355,
+      "synergy_mean": 0.0728719210157914,
+      "synergy_std": 0.0030042882768009835,
+      "swarm_params": 563520,
+      "baseline_params": 44752,
+      "swarm_wins": 7
+    },
+    "duration_seconds": 0.26813483238220215,
+    "timestamp": "2025-12-19 20:16:07"
+  },
+  "scaling_synergy": {
+    "experiment_name": "scaling_synergy",
+    "config": {
+      "agent_counts": [
+        5,
+        10,
+        20,
+        50,
+        100
+      ],
+      "num_trials": 5
+    },
+    "metrics": {
+      "results_by_count": {
+        "5": {
+          "synergy_mean": 0.06291449024013415,
+          "synergy_std": 0.0037646550958118224,
+          "collective_perf_mean": 0.678226741753474,
+          "individual_perf_mean": 0.6153122515133398,
+          "params": 140880
+        },
+        "10": {
+          "synergy_mean": 0.07156016773682235,
+          "synergy_std": 0.003634473111955329,
+          "collective_perf_mean": 0.6816492660331869,
+          "individual_perf_mean": 0.6100890982963646,
+          "params": 281760
+        },
+        "20": {
+          "synergy_mean": 0.07607568154034734,
+          "synergy_std": 0.003111262328420916,
+          "collective_perf_mean": 0.6877584184026082,
+          "individual_perf_mean": 0.6116827368622608,
+          "params": 563520
+        },
+        "50": {
+          "synergy_mean": 0.06195730021619354,
+          "synergy_std": 0.003089355752754024,
+          "collective_perf_mean": 0.6862662703747117,
+          "individual_perf_mean": 0.6243089701585182,
+          "params": 1408800
+        },
+        "100": {
+          "synergy_mean": 0.060097088317562844,
+          "synergy_std": 0.0010363878019653693,
+          "collective_perf_mean": 0.6893761377777851,
+          "individual_perf_mean": 0.6292790494602222,
+          "params": 2817600
+        }
+      },
+      "agent_counts": [
+        5,
+        10,
+        20,
+        50,
+        100
+      ],
+      "scaling_efficiency": [
+        0.5687096572625479,
+        0.3022978854237861,
+        0.09847857009069907,
+        0.04776092004878231
+      ],
+      "best_agent_count": 20
+    },
+    "duration_seconds": 0.5093581676483154,
+    "timestamp": "2025-12-19 20:16:07"
+  },
+  "topology_comparison": {
+    "experiment_name": "topology_comparison",
+    "config": {
+      "num_agents": 30,
+      "num_trials": 10
+    },
+    "metrics": {
+      "results_by_topology": {
+        "RANDOM": {
+          "synergy_mean": 0.06464573530528732,
+          "synergy_std": 0.00365930852444274,
+          "error_mean": 0.4616172432899475,
+          "clustering": 0.08444444444444445,
+          "diameter": 9,
+          "avg_degree": 2.8666666666666667
+        },
+        "SMALL_WORLD": {
+          "synergy_mean": 0.06858280856384448,
+          "synergy_std": 0.003047796347363191,
+          "error_mean": 0.46440989673137667,
+          "clustering": 0.4433333333333333,
+          "diameter": 6,
+          "avg_degree": 4.0
+        },
+        "SCALE_FREE": {
+          "synergy_mean": 0.06415991341240991,
+          "synergy_std": 0.0030961795136402685,
+          "error_mean": 0.4575635135173798,
+          "clustering": 0.286022496022496,
+          "diameter": 4,
+          "avg_degree": 5.4
+        },
+        "MODULAR": {
+          "synergy_mean": 0.07049500884088,
+          "synergy_std": 0.002179664145980352,
+          "error_mean": 0.45196041464805603,
+          "clustering": 0.25877805527805525,
+          "diameter": 5,
+          "avg_degree": 8.04
+        },
+        "HIERARCHICAL": {
+          "synergy_mean": 0.05983295756873325,
+          "synergy_std": 0.0025799746485344367,
+          "error_mean": 0.4684707671403885,
+          "clustering": 0.16115971718340139,
+          "diameter": 4,
+          "avg_degree": 12.8
+        },
+        "FULLY_CONNECTED": {
+          "synergy_mean": 0.06777348539530648,
+          "synergy_std": 0.002821364038234875,
+          "error_mean": 0.46443442106246946,
+          "clustering": 1.0,
+          "diameter": 1,
+          "avg_degree": 29.0
+        }
+      },
+      "best_topology": "MODULAR",
+      "best_synergy": 0.07049500884088
+    },
+    "duration_seconds": 1.9312622547149658,
+    "timestamp": "2025-12-19 20:16:09"
+  },
+  "environment_performance": {
+    "experiment_name": "environment_performance",
+    "config": {
+      "num_agents": 20,
+      "num_episodes": 10
+    },
+    "metrics": {
+      "reward_mean": 0.5090000000000001,
+      "reward_std": 2.235202227987437,
+      "survival_mean": 94.0,
+      "survival_std": 18.0,
+      "exploration_mean": 0.015625,
+      "exploration_std": 0.007202769107260068,
+      "num_episodes": 10,
+      "episode_length": 100
+    },
+    "duration_seconds": 4.694087028503418,
+    "timestamp": "2025-12-19 20:16:14"
+  }
+}
