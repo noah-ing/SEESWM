@@ -4,8 +4,8 @@ This file tracks progress, decisions, and context for AI-assisted development se
 
 ## Project Status
 
-**Current Phase**: Phase 4 - Self-Model (Complete)
-**Last Updated**: Session 5
+**Current Phase**: Phase 5 - Neuromorphic (Complete)
+**Last Updated**: Session 6
 
 ### Completed
 
@@ -89,14 +89,52 @@ This file tracks progress, decisions, and context for AI-assisted development se
 - [x] Meta-cognition training script with demos
 - [x] Comprehensive test suite (32 Phase 4 tests, 104 total)
 
+#### Phase 5 - Neuromorphic
+- [x] LIF (Leaky Integrate-and-Fire) neurons:
+  - LIFNeuron: Single neuron with full dynamics
+  - LIFLayer: Dense layer with LIF neurons
+  - RecurrentLIFLayer: With lateral connections
+  - AdaptiveLIFLayer: Spike-frequency adaptation
+  - PopulationLIF: Population coding for inputs
+  - SurrogateSpike: Differentiable spike function
+- [x] STDP learning rules:
+  - ClassicSTDP: Pair-based timing-dependent plasticity
+  - TripletSTDP: More biologically accurate
+  - SymmetricSTDP: Hebbian unsupervised learning
+  - RewardModulatedSTDP: For reinforcement learning
+  - HomeostaticSTDP: With target firing rate
+  - STDPLayer: Layer with online STDP
+- [x] SNN architectures:
+  - SpikingLinear: Dense spiking layer
+  - SpikingConv2d: Convolutional spiking layer
+  - SpikingRNN: Recurrent spiking network
+  - SpikingNetwork: Multi-layer SNN
+  - LiquidStateMachine: Reservoir computing
+  - TemporalCoding: Rate/latency/burst encoding
+  - SpikeDecoder: Multiple decoding strategies
+- [x] Energy efficiency:
+  - HardwareModel: Loihi, TrueNorth, SpiNNaker, etc.
+  - SpikeCounter: Tracks spike activity
+  - EnergyTracker: Estimates energy consumption
+  - EnergyBudget: Constrained inference
+  - EnergyEfficientLoss: Penalizes high spike rates
+  - compare_energy_efficiency: SNN vs ANN comparison
+- [x] Spiking swarm integration:
+  - SpikingMicroAgent: LIF-based agent with STDP
+  - SpikingSwarmGraph: Swarm with spike communication
+  - HybridSwarm: Mixed spiking + rate-coded
+  - SpikingSwarmTrainer: Training with energy constraints
+- [x] Neuromorphic training script with experiments
+- [x] Comprehensive test suite (28 Phase 5 tests, 132 total)
+
 ### In Progress
 - [ ] Visualization and TensorBoard integration
 
-### Next Steps (Phase 5 - Neuromorphic)
-1. LIF (Leaky Integrate-and-Fire) neurons with temporal dynamics
-2. STDP (Spike-Timing Dependent Plasticity) learning rule
-3. Spiking neural network integration with swarm
-4. Energy efficiency metrics
+### Next Steps (Phase 6 - Evolution & Scaling)
+1. Distributed training across multiple GPUs/nodes
+2. Evolutionary optimization of swarm topology
+3. Neural architecture search for agent structure
+4. Scaling to 1000+ agents
 
 ## Architecture Decisions
 
@@ -150,6 +188,15 @@ This file tracks progress, decisions, and context for AI-assisted development se
 - Control messages (REWARD_SIGNAL, NOVELTY_SIGNAL) modulate processing
 - TypeAwareAggregator processes content vs control messages differently
 
+### Neuromorphic Computing (Phase 5)
+- LIF neurons with configurable time constants (tau_mem, tau_syn)
+- Surrogate gradients (fast sigmoid) for backprop through spikes
+- STDP learning: pre-before-post = LTP, post-before-pre = LTD
+- Reward-modulated STDP for RL (eligibility traces + dopamine)
+- Energy tracking based on neuromorphic hardware models (Loihi, TrueNorth)
+- Hybrid swarm: mix of spiking and rate-coded agents
+- Target spike rates ~0.1 for energy efficiency
+
 ## Key Files
 
 | Component | Primary Files |
@@ -161,9 +208,10 @@ This file tracks progress, decisions, and context for AI-assisted development se
 | Environment | `src/environment/cosmos.py` |
 | Neuromodulation | `src/neuromod/signals.py` |
 | Self-Model | `src/self_model/*.py` (capabilities, uncertainty, calibration, meta_learning, theory_of_mind, swarm_integration) |
+| Neuromorphic | `src/neuromorphic/lif.py`, `src/neuromorphic/stdp.py`, `src/neuromorphic/layers.py`, `src/neuromorphic/energy.py`, `src/neuromorphic/swarm_integration.py` |
 | Training | `src/training/__init__.py` (PPO), `src/training/exploration.py` |
-| Experiments | `experiments/train_curiosity.py`, `experiments/train_specialization.py`, `experiments/train_metacognition.py` |
-| Tests | `tests/test_*.py` (104 tests total) |
+| Experiments | `experiments/train_curiosity.py`, `experiments/train_specialization.py`, `experiments/train_metacognition.py`, `experiments/train_neuromorphic.py` |
+| Tests | `tests/test_*.py` (132 tests total) |
 
 ## Performance Notes
 
@@ -262,6 +310,46 @@ This file tracks progress, decisions, and context for AI-assisted development se
 - Fixed bugs: evidential uncertainty clamping, calibration tracker property, trainer gradients
 - All 104 tests passing (32 new Phase 4 tests)
 - Phase 4 complete, ready for Phase 5
+
+### Session 6
+- Implemented Phase 5: Neuromorphic Computing
+- Created LIF neurons (`src/neuromorphic/lif.py`):
+  - LIFNeuron with full dynamics (membrane, synaptic, refractory)
+  - LIFLayer, RecurrentLIFLayer, AdaptiveLIFLayer
+  - PopulationLIF for rate/latency coding
+  - SurrogateSpike for differentiable training
+- Created STDP learning rules (`src/neuromorphic/stdp.py`):
+  - ClassicSTDP: Pair-based with exponential windows
+  - TripletSTDP: More biologically accurate
+  - SymmetricSTDP: Hebbian unsupervised
+  - RewardModulatedSTDP: Eligibility traces for RL
+  - HomeostaticSTDP: Target firing rate maintenance
+  - STDPLayer: Layer with online weight updates
+- Created SNN architectures (`src/neuromorphic/layers.py`):
+  - SpikingLinear, SpikingConv2d, SpikingRNN
+  - SpikingNetwork: Multi-layer SNN
+  - LiquidStateMachine: Reservoir computing
+  - TemporalCoding, SpikeDecoder for I/O
+- Created energy metrics (`src/neuromorphic/energy.py`):
+  - Hardware models: Loihi, TrueNorth, SpiNNaker, etc.
+  - SpikeCounter, EnergyTracker, EnergyBudget
+  - EnergyEfficientLoss for sparse solutions
+  - compare_energy_efficiency for SNN vs ANN
+- Created spiking swarm (`src/neuromorphic/swarm_integration.py`):
+  - SpikingMicroAgent with LIF + STDP
+  - SpikingSwarmGraph with spike communication
+  - HybridSwarm mixing spiking + rate-coded
+  - SpikingSwarmTrainer with energy constraints
+- Created training script (`experiments/train_neuromorphic.py`):
+  - SNN training with surrogate gradients
+  - STDP unsupervised learning
+  - Reward-modulated STDP demo
+  - Spiking swarm training
+  - SNN vs ANN energy comparison
+  - Liquid State Machine demo
+- Fixed import error: AgentConfig (not MicroAgentConfig)
+- All 132 tests passing (28 new Phase 5 tests)
+- Phase 5 complete, ready for Phase 6
 
 ---
 
