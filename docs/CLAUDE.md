@@ -4,8 +4,8 @@ This file tracks progress, decisions, and context for AI-assisted development se
 
 ## Project Status
 
-**Current Phase**: Phase 5 - Neuromorphic (Complete)
-**Last Updated**: Session 6
+**Current Phase**: Phase 6 - Evolution & Scaling (Complete)
+**Last Updated**: Session 7
 
 ### Completed
 
@@ -127,14 +127,57 @@ This file tracks progress, decisions, and context for AI-assisted development se
 - [x] Neuromorphic training script with experiments
 - [x] Comprehensive test suite (28 Phase 5 tests, 132 total)
 
+#### Phase 6 - Evolution & Scaling
+- [x] Distributed training infrastructure:
+  - DistributedConfig, ParallelismMode (DATA, MODEL, PIPELINE)
+  - DistributedManager: Process group management, device handling
+  - DistributedSwarm: DDP wrapper with gradient accumulation
+  - ModelParallelSwarm: Shard agents across devices
+  - PipelineParallelSwarm: Micro-batch pipeline execution
+  - AsyncGradientAggregator: Non-blocking gradient sync
+  - DistributedTrainer: Full training loop with checkpointing
+- [x] Evolutionary optimization:
+  - NEAT-style genome representation (AgentGene, ConnectionGene)
+  - InnovationTracker: Track structural innovations
+  - SwarmMutator: Add/remove agents, connections, weights
+  - SwarmCrossover: Align matching genes, inherit from fitter parent
+  - Species: Explicit fitness sharing, representative tracking
+  - GeneticOptimizer: Full evolutionary loop with speciation
+  - CMAES: Covariance Matrix Adaptation for continuous parameters
+- [x] Neural Architecture Search:
+  - SearchSpace: Operations (skip, linear, ReLU, GELU, attention, etc.)
+  - MixedOperation: Softmax weighted ops for DARTS
+  - DARTSCell, DARTSAgent, DARTSSearcher: Differentiable NAS
+  - ENASController: RNN policy for architecture sampling
+  - ENASSharedNetwork: Weight sharing across architectures
+  - ENASSearcher: RL-based architecture search
+  - RandomSearchNAS: Baseline comparison
+- [x] Scaling to 1000+ agents:
+  - AgentPool: Lazy initialization with LRU cache
+  - AgentGroup: Local clusters with aggregation
+  - HierarchicalSwarm: Multi-level grouping for O(n) messaging
+  - SparseMessageGraph: k-nearest neighbor sparse communication
+  - CheckpointedSwarm: Gradient checkpointing for memory
+  - BatchedAgentProcessor: Efficient batched execution
+  - OffloadedSwarm: CPU offloading for large swarms
+  - StreamingSwarm: Process agents without loading all
+  - estimate_memory_usage: Memory planning utility
+- [x] Evolution training script (`experiments/train_evolution.py`):
+  - Genetic topology evolution with speciation
+  - CMA-ES parameter optimization
+  - DARTS and ENAS architecture search
+  - Hierarchical swarm demos
+  - Sparse messaging demos
+  - Scaling benchmarks
+- [x] Comprehensive test suite (30 Phase 6 tests, 162 total)
+
 ### In Progress
 - [ ] Visualization and TensorBoard integration
 
-### Next Steps (Phase 6 - Evolution & Scaling)
-1. Distributed training across multiple GPUs/nodes
-2. Evolutionary optimization of swarm topology
-3. Neural architecture search for agent structure
-4. Scaling to 1000+ agents
+### Next Steps
+1. End-to-end integration testing across all phases
+2. Full self-evolving swarm experiments
+3. Multi-environment embodiment
 
 ## Architecture Decisions
 
@@ -197,6 +240,19 @@ This file tracks progress, decisions, and context for AI-assisted development se
 - Hybrid swarm: mix of spiking and rate-coded agents
 - Target spike rates ~0.1 for energy efficiency
 
+### Evolution & Scaling (Phase 6)
+- NEAT-style genome with innovation numbers for structural alignment
+- Speciation via genome distance (agents, connections, weights)
+- Tournament selection + elitism for evolution
+- CMA-ES for continuous parameter tuning (learning rate, sparsity, etc.)
+- DARTS: Differentiable NAS with bi-level optimization
+- ENAS: Weight sharing with RNN controller (REINFORCE training)
+- Hierarchical swarms: 3 levels (agents -> groups -> supergroups)
+- Sparse messaging: k-nearest neighbors based on spatial position
+- Lazy agent initialization with LRU cache for memory efficiency
+- Gradient checkpointing every N agents for large swarms
+- CPU offloading for agents not currently processing
+
 ## Key Files
 
 | Component | Primary Files |
@@ -209,9 +265,10 @@ This file tracks progress, decisions, and context for AI-assisted development se
 | Neuromodulation | `src/neuromod/signals.py` |
 | Self-Model | `src/self_model/*.py` (capabilities, uncertainty, calibration, meta_learning, theory_of_mind, swarm_integration) |
 | Neuromorphic | `src/neuromorphic/lif.py`, `src/neuromorphic/stdp.py`, `src/neuromorphic/layers.py`, `src/neuromorphic/energy.py`, `src/neuromorphic/swarm_integration.py` |
+| Evolution | `src/evolution/distributed.py`, `src/evolution/genetic.py`, `src/evolution/nas.py`, `src/evolution/scaling.py` |
 | Training | `src/training/__init__.py` (PPO), `src/training/exploration.py` |
-| Experiments | `experiments/train_curiosity.py`, `experiments/train_specialization.py`, `experiments/train_metacognition.py`, `experiments/train_neuromorphic.py` |
-| Tests | `tests/test_*.py` (132 tests total) |
+| Experiments | `experiments/train_curiosity.py`, `experiments/train_specialization.py`, `experiments/train_metacognition.py`, `experiments/train_neuromorphic.py`, `experiments/train_evolution.py` |
+| Tests | `tests/test_*.py` (162 tests total) |
 
 ## Performance Notes
 
@@ -350,6 +407,45 @@ This file tracks progress, decisions, and context for AI-assisted development se
 - Fixed import error: AgentConfig (not MicroAgentConfig)
 - All 132 tests passing (28 new Phase 5 tests)
 - Phase 5 complete, ready for Phase 6
+
+### Session 7
+- Implemented Phase 6: Evolution & Scaling
+- Created distributed training infrastructure (`src/evolution/distributed.py`):
+  - DistributedConfig, ParallelismMode, DistributedManager
+  - DistributedSwarm with DDP wrapper
+  - ModelParallelSwarm, PipelineParallelSwarm
+  - AsyncGradientAggregator for non-blocking sync
+- Created evolutionary optimization (`src/evolution/genetic.py`):
+  - NEAT-style genomes (AgentGene, ConnectionGene, SwarmGenome)
+  - InnovationTracker for structural alignment
+  - SwarmMutator, SwarmCrossover for evolution
+  - Species for speciation and fitness sharing
+  - GeneticOptimizer with tournament selection
+  - CMAES for continuous parameter optimization
+- Created Neural Architecture Search (`src/evolution/nas.py`):
+  - SearchSpace with configurable operations
+  - DARTS: DARTSCell, DARTSAgent, DARTSSearcher
+  - ENAS: ENASController, ENASSharedNetwork, ENASSearcher
+  - RandomSearchNAS baseline
+- Created scaling utilities (`src/evolution/scaling.py`):
+  - AgentPool with LRU cache for lazy initialization
+  - AgentGroup for local clustering
+  - HierarchicalSwarm for multi-level organization
+  - SparseMessageGraph for efficient communication
+  - CheckpointedSwarm, BatchedAgentProcessor
+  - OffloadedSwarm, StreamingSwarm for memory efficiency
+- Created training script (`experiments/train_evolution.py`):
+  - Topology evolution, CMA-ES optimization
+  - DARTS and ENAS architecture search
+  - Hierarchical swarm demos, scaling benchmarks
+- Fixed bugs:
+  - Dataclass inheritance (non-default after default)
+  - ENAS log_prob stacking (stack -> cat with view)
+  - AgentGroup forward signature (try/except for message arg)
+  - BatchedAgentProcessor hidden_dim inference
+  - AgentGroup representation shape consistency
+- All 162 tests passing (30 new Phase 6 tests)
+- Phase 6 complete, all 6 phases implemented
 
 ---
 
