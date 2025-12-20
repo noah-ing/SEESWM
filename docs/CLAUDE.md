@@ -4,8 +4,8 @@ This file tracks progress, decisions, and context for AI-assisted development se
 
 ## Project Status
 
-**Current Phase**: Phase 3 - Specialization (Complete)
-**Last Updated**: Session 4
+**Current Phase**: Phase 4 - Self-Model (Complete)
+**Last Updated**: Session 5
 
 ### Completed
 
@@ -57,14 +57,46 @@ This file tracks progress, decisions, and context for AI-assisted development se
 - [x] Specialization training script with comparison experiments
 - [x] Comprehensive test suite (32 Phase 3 tests, 72 total)
 
+#### Phase 4 - Self-Model (Meta-Cognition)
+- [x] Uncertainty quantification:
+  - EnsembleUncertainty: Disagreement between ensemble members
+  - MCDropoutUncertainty: Monte Carlo dropout sampling
+  - EvidentialNetwork: Single-pass Dirichlet uncertainty
+  - UncertaintyAggregator: Combines multiple methods
+  - UncertaintyHead: Learnable uncertainty prediction
+- [x] Confidence calibration:
+  - TemperatureScaling: Post-hoc calibration
+  - PlattScaling: Logistic regression on logits
+  - FocalLoss: Training-time calibration
+  - LabelSmoothing: Implicit calibration
+  - CalibrationLoss: Differentiable ECE
+  - CalibrationTracker: Monitors calibration over time
+- [x] Meta-learning:
+  - MAML: Model-Agnostic Meta-Learning for fast adaptation
+  - MetaSGD: Learned per-parameter learning rates
+  - Reptile: Simplified meta-learning via averaging
+  - TaskEmbedding: Task similarity for transfer
+  - AdaptiveMetaLearner: Strategy selection
+- [x] Theory of Mind:
+  - BeliefEncoder: Infer agent beliefs from observations
+  - IntentPredictor: Predict agent intentions from behavior
+  - TheoryOfMind: Full module with perspective taking
+  - CollectiveBeliefAggregator: Aggregate beliefs across agents
+- [x] Swarm integration:
+  - MetaCognitiveSwarm: Wrapper with all meta-cognitive abilities
+  - AgentMetaCognition: Per-agent self-model
+  - MetaCognitionTrainer: Training for uncertainty/calibration
+- [x] Meta-cognition training script with demos
+- [x] Comprehensive test suite (32 Phase 4 tests, 104 total)
+
 ### In Progress
 - [ ] Visualization and TensorBoard integration
 
-### Next Steps (Phase 4 - Collective Intelligence)
-1. Multi-agent coordination tasks
-2. Emergent communication protocols
-3. Swarm-level goal decomposition
-4. Neuromodulation-guided learning
+### Next Steps (Phase 5 - Neuromorphic)
+1. LIF (Leaky Integrate-and-Fire) neurons with temporal dynamics
+2. STDP (Spike-Timing Dependent Plasticity) learning rule
+3. Spiking neural network integration with swarm
+4. Energy efficiency metrics
 
 ## Architecture Decisions
 
@@ -128,10 +160,10 @@ This file tracks progress, decisions, and context for AI-assisted development se
 | World Model | `src/world_model/jepa.py` |
 | Environment | `src/environment/cosmos.py` |
 | Neuromodulation | `src/neuromod/signals.py` |
-| Self-Model | `src/self_model/capabilities.py` |
+| Self-Model | `src/self_model/*.py` (capabilities, uncertainty, calibration, meta_learning, theory_of_mind, swarm_integration) |
 | Training | `src/training/__init__.py` (PPO), `src/training/exploration.py` |
-| Experiments | `experiments/train_curiosity.py`, `experiments/train_specialization.py` |
-| Tests | `tests/test_*.py` (72 tests total) |
+| Experiments | `experiments/train_curiosity.py`, `experiments/train_specialization.py`, `experiments/train_metacognition.py` |
+| Tests | `tests/test_*.py` (104 tests total) |
 
 ## Performance Notes
 
@@ -199,6 +231,37 @@ This file tracks progress, decisions, and context for AI-assisted development se
 - Fixed dimension mismatch bug: aggregators now use output_dim for message content
 - All 72 tests passing (32 new Phase 3 tests)
 - Phase 3 complete, ready for Phase 4
+
+### Session 5
+- Implemented Phase 4: Self-Model (Meta-Cognition)
+- Created uncertainty quantification (`src/self_model/uncertainty.py`):
+  - EnsembleUncertainty, MCDropoutUncertainty, EvidentialNetwork
+  - UncertaintyAggregator for combining methods
+  - UncertaintyHead for learned uncertainty prediction
+- Created confidence calibration (`src/self_model/calibration.py`):
+  - TemperatureScaling, PlattScaling for post-hoc calibration
+  - FocalLoss, LabelSmoothing for training-time calibration
+  - CalibrationLoss for differentiable ECE optimization
+  - CalibrationTracker for monitoring
+- Created meta-learning (`src/self_model/meta_learning.py`):
+  - MAML for fast adaptation with few examples
+  - MetaSGD with learned per-parameter learning rates
+  - Reptile as simplified meta-learning alternative
+  - TaskEmbedding for task similarity detection
+- Created Theory of Mind (`src/self_model/theory_of_mind.py`):
+  - BeliefEncoder, IntentPredictor for modeling other agents
+  - TheoryOfMind with perspective taking and trust tracking
+  - CollectiveBeliefAggregator for swarm-level beliefs
+- Created swarm integration (`src/self_model/swarm_integration.py`):
+  - MetaCognitiveSwarm wrapping specialized swarm
+  - Per-agent uncertainty heads and self-models
+  - MetaCognitionTrainer for training meta-cognitive abilities
+- Created training script (`experiments/train_metacognition.py`):
+  - Uncertainty training, MAML demo, ToM demo
+  - Comparison: with vs without meta-cognition
+- Fixed bugs: evidential uncertainty clamping, calibration tracker property, trainer gradients
+- All 104 tests passing (32 new Phase 4 tests)
+- Phase 4 complete, ready for Phase 5
 
 ---
 
