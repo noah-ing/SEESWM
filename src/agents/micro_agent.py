@@ -172,6 +172,9 @@ class MicroAgent:
         self.activation_count = 0
         self.total_output_magnitude = 0.0
 
+        # Track last output for emergence analysis
+        self.last_output: Optional[torch.Tensor] = None
+
     @property
     def agent_type(self) -> AgentType:
         return self.config.agent_type
@@ -232,6 +235,9 @@ class MicroAgent:
 
         # Forward pass
         output, self.local_state = self.network(inputs, aggregated, self.local_state)
+
+        # Store for emergence analysis
+        self.last_output = output.detach()
 
         # Update statistics
         self.activation_count += 1
