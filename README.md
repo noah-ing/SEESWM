@@ -37,25 +37,25 @@ A novel AGI architecture that rejects the monolithic LLM paradigm in favor of a 
                              ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                 TYPED MESSAGE PASSING (K rounds)                    │
-│    (PERCEPT, INFERENCE, QUERY, GOAL, REWARD_SIGNAL, etc.)          │
+│    (PERCEPT, INFERENCE, QUERY, GOAL, REWARD_SIGNAL, etc.)           │
 └─────────────────────────────────────────────────────────────────────┘
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                   META-COGNITIVE LAYER                              │
-│  (Uncertainty, Calibration, MAML, Theory of Mind)                  │
+│  (Uncertainty, Calibration, MAML, Theory of Mind)                   │
 └─────────────────────────────────────────────────────────────────────┘
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                 WORLD MODEL CORE (JEPA-inspired)                    │
-│         (Latent prediction, curiosity, RND/ICM options)            │
+│         (Latent prediction, curiosity, RND/ICM options)             │
 └─────────────────────────────────────────────────────────────────────┘
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    SIMULATED ENVIRONMENT                            │
-│     (Grid world, resources, survival mechanics, obstacles)         │
+│     (Grid world, resources, survival mechanics, obstacles)          │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
