@@ -58,7 +58,7 @@ We built a rigorous validation framework with seven criteria. After training for
 | **Emergence** | ✓ Specialization Index 3x higher than random (p < 0.001, Cohen's d = 5.22) |
 | **Interpretability** | ✓ Agent importance varies 5x (top agent: 0.29, median: 0.06) |
 
-**Score: 7/7 — Ready for publication.**
+**Score: 7/7 criteria addressed. But this is proof-of-concept, not publication-ready.**
 
 ### How We Measure Emergence
 
@@ -162,21 +162,39 @@ We don't yet have a complete theoretical explanation, but we hypothesize:
 
 **Specialization emerges from credit assignment.** In a monolithic network, gradients flow uniformly. In a swarm, agents that contribute useful messages receive stronger learning signals (via policy gradient). This creates a natural pressure toward division of labor: agents that are "good at" perceiving get reinforced for perception, creating a feedback loop toward specialization.
 
-Testing these hypotheses (via information-theoretic analysis and gradient flow inspection) is a priority for future work.
+These are hypotheses, not results. Testing them requires measuring mutual information between observations and messages vs. observations and hidden states. We haven't done that yet.
+
+---
+
+## Limitations (What's Missing for Publication)
+
+**Single environment.** All results come from one 64x64 grid world. We don't know if findings transfer to environments with different coordination demands, continuous action spaces, or partial observability structures.
+
+**Untrained scaling curves.** The scaling table shows random initialization behavior. We don't know if the 10-agent peak holds after training, or if trained 100-agent swarms learn to coordinate where untrained ones fail.
+
+**Weak baselines.** The "single agent" baseline is a random-init MLP. Cohen's d = 5.22 against random init is less impressive than it sounds. A fair comparison needs:
+- Trained single agent with equivalent compute budget
+- Standard MARL baselines (QMIX, MAPPO, COMA)
+- Ablations on topology (small-world vs ring vs hierarchical vs random)
+
+**Unverified theory.** The information bottleneck hypothesis is stated but not tested. "Message passing forces compression" is plausible, but we haven't measured whether it's actually happening.
+
+**One task structure.** Survival/foraging doesn't require tight coordination. An environment where agents must share learned representations (not just observations) to succeed would be a stronger test.
 
 ---
 
 ## What's Next
 
-The hypothesis is validated. Now we explore its implications:
+The hypothesis has initial support. To make it publication-ready:
 
-- **Harder environments**: Tasks where no single agent can succeed alone (distributed information)
-- **Train-at-scale**: The 10-20 agent sweet spot may shift with proper training
-- **Interpretability deep dive**: Identify leaders vs followers, intervention experiments
-- **Theoretical grounding**: Information-theoretic analysis of complementary representations
-- **Hebbian topology learning**: Let connection strengths evolve based on co-activation
+1. **Harder environments**: Tasks requiring information sharing to succeed, not just parallel foraging
+2. **Trained scaling curves**: Does the 10-agent peak hold after 1000 epochs? Train at 4/10/20/50/100 agents
+3. **Real baselines**: QMIX, MAPPO, COMA comparisons with matched compute
+4. **Topology ablations**: Small-world vs ring vs hierarchical vs random graphs
+5. **Information bottleneck measurement**: Actually compute MI(observations, messages) vs MI(observations, hidden states)
+6. **Trained single-agent comparison**: Give a 2M parameter MLP the same training budget
 
-The foundation is proven. The question is no longer *if* collective intelligence emerges, but *what coordination mechanisms enable it to scale*.
+The core question: Does swarm coordination provide advantages that can't be replicated by a well-trained monolith?
 
 ---
 

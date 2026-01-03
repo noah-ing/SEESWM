@@ -51,7 +51,7 @@ We hypothesize two mechanisms:
 
 2. **Credit assignment drives specialization**: In a swarm, agents that contribute useful messages receive stronger policy gradient signals. This creates feedback loops: agents "good at" perception get reinforced for perception, naturally producing division of labor.
 
-Testing these hypotheses via mutual information analysis and gradient flow inspection is a priority.
+These are hypotheses, not verified mechanisms. Testing requires measuring MI(observations, messages) vs MI(observations, hidden states).
 
 ---
 
@@ -71,23 +71,27 @@ However, emergence also creates alignment challenges. Specialization develops wi
 
 ---
 
+## Limitations
+
+- **Single environment**: All results from one grid world. Unknown if findings transfer.
+- **Weak baselines**: Cohen's d = 5.22 is against random init, not trained alternatives.
+- **Untrained scaling**: The scaling table shows architectural bias, not learned behavior.
+- **Unverified theory**: Information bottleneck hypothesis is stated, not tested.
+
+---
+
 ## Next Experiments
 
-**Immediate priority: Harder environments that require coordination.**
+To make this publication-ready:
 
-The current grid world can be solved by individual agents acting independently—the swarm wins through efficiency, not through capabilities impossible for a single agent. The critical test is an environment where:
+1. **Harder environments**: Tasks where information sharing is required, not just helpful
+2. **Trained scaling curves**: Train at 4/10/20/50/100 agents, compare peaks
+3. **Real baselines**: QMIX, MAPPO, COMA with matched compute budget
+4. **Trained single-agent**: 2M parameter MLP with same training budget
+5. **Information bottleneck measurement**: Compute MI(observations, messages) empirically
+6. **Topology ablations**: Small-world vs ring vs hierarchical vs random
 
-1. Information is distributed across the world such that no single agent's observation is sufficient
-2. Agents must share learned representations (not just raw observations) to solve the task
-3. A "centralized oracle" with complete information provides an upper bound
-
-If the swarm approaches oracle performance through emergent communication—developing its own protocol for sharing relevant information—that would demonstrate genuine collective intelligence beyond ensemble effects.
-
-**Secondary priorities:**
-
-- Train swarms at scale (100+ agents) to see if the 10-agent peak shifts with learned coordination
-- Intervention experiments: predict and measure performance drops from removing specific agents or message pathways
-- Hebbian topology learning: strengthen connections between agents that co-activate on successful episodes, prune unused connections
+The core question: Does swarm coordination provide advantages a well-trained monolith cannot replicate?
 
 ---
 
