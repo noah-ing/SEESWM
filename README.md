@@ -79,8 +79,8 @@ Claiming "emergence" without rigorous methodology invites skepticism. Here's our
 - Cluster sizes: [4, 2, 5, 4, 2, 3] agents — non-uniform distribution indicates genuine specialization
 
 **4. Behavioral Diversity (BD)** — Mean pairwise Jensen-Shannon divergence
-- BD = 0.57 between agent action distributions
-- Agents are doing genuinely different things, not just noisy copies
+- BD ranges from 0 (identical) to 1 (maximally different); trained swarm achieves 0.57
+- This indicates substantial differentiation: agents are doing genuinely different things, not noisy copies
 
 The swarm doesn't just outperform alternatives—we can now explain *why*. The architecture matters: replacing the swarm with a single network of equivalent parameters causes performance to collapse. Agents show distinct behavioral patterns. The collective succeeds where individuals fail.
 
@@ -185,6 +185,9 @@ The foundation is proven. The question is no longer *if* collective intelligence
 1. LeCun, Y. (2022). A Path Towards Autonomous Machine Intelligence. *Meta AI*.
 2. Stanley, K. O., & Miikkulainen, R. (2002). Evolving Neural Networks through Augmenting Topologies. *Evolutionary Computation*.
 3. Williams, P. L., & Beer, R. D. (2010). Nonnegative Decomposition of Multivariate Information. *arXiv*.
+4. Tishby, N., & Zaslavsky, N. (2015). Deep Learning and the Information Bottleneck Principle. *IEEE Information Theory Workshop*.
+5. Lowe, R., Wu, Y., Tamar, A., Harb, J., Abbeel, P., & Mordatch, I. (2017). Multi-Agent Actor-Critic for Mixed Cooperative-Competitive Environments. *NeurIPS*.
+6. Foerster, J., Assael, I. A., de Freitas, N., & Whiteson, S. (2016). Learning to Communicate with Deep Multi-Agent Reinforcement Learning. *NeurIPS*.
 
 ---
 
