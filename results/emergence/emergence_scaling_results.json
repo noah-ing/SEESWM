@@ -1,0 +1,117 @@
+{
+  "timestamp": "2026-01-03T08:37:33.085262",
+  "config": {
+    "swarm": {
+      "num_agents": 20,
+      "input_dim": 137,
+      "hidden_dim": 128,
+      "output_dim": 128
+    },
+    "env": {
+      "grid_size": 32,
+      "num_resources": 20,
+      "num_hazards": 10,
+      "vision_radius": 5
+    }
+  },
+  "scaling": {
+    "data_points": [
+      {
+        "num_agents": 4,
+        "mean_reward": 1.0908333333333322,
+        "std_reward": 0.33038067269271276,
+        "specialization_index": 0.18837463359038034,
+        "behavioral_diversity": 0.44716134193792484,
+        "messages_per_step": 12,
+        "total_params": 417044
+      },
+      {
+        "num_agents": 10,
+        "mean_reward": 1.2361666666666669,
+        "std_reward": 0.07521783181016446,
+        "specialization_index": 0.18944880614678064,
+        "behavioral_diversity": 0.5065373327413923,
+        "messages_per_step": 30,
+        "total_params": 1042610
+      },
+      {
+        "num_agents": 20,
+        "mean_reward": 1.0356666666666665,
+        "std_reward": 0.2430861758489959,
+        "specialization_index": 0.2841707815726598,
+        "behavioral_diversity": 0.5310431534136183,
+        "messages_per_step": 60,
+        "total_params": 2085220
+      },
+      {
+        "num_agents": 50,
+        "mean_reward": 1.014,
+        "std_reward": 0.1796125459612075,
+        "specialization_index": 0.32658855617046356,
+        "behavioral_diversity": 0.5585908151568032,
+        "messages_per_step": 150,
+        "total_params": 5213050
+      },
+      {
+        "num_agents": 100,
+        "mean_reward": 0.8000000000000003,
+        "std_reward": 0.30218647664425097,
+        "specialization_index": 0.36522456010182697,
+        "behavioral_diversity": 0.5707852451276046,
+        "messages_per_step": 300,
+        "total_params": 10426100
+      },
+      {
+        "num_agents": 150,
+        "mean_reward": 0.8481666666666662,
+        "std_reward": 0.45661368305774125,
+        "specialization_index": 0.3311687807242076,
+        "behavioral_diversity": 0.5637621718912217,
+        "messages_per_step": 450,
+        "total_params": 15639150
+      }
+    ],
+    "phase_transitions": [
+      {
+        "agent_count": 10,
+        "metric": "mean_reward",
+        "magnitude": 0.2966504137015483
+      },
+      {
+        "agent_count": 20,
+        "metric": "mean_reward",
+        "magnitude": 0.11215095568801021
+      },
+      {
+        "agent_count": 100,
+        "metric": "mean_reward",
+        "magnitude": 0.2652215496823447
+      },
+      {
+        "agent_count": 10,
+        "metric": "specialization_index",
+        "magnitude": 0.08403741222454386
+      },
+      {
+        "agent_count": 50,
+        "metric": "specialization_index",
+        "magnitude": 0.08104061755090937
+      },
+      {
+        "agent_count": 100,
+        "metric": "specialization_index",
+        "magnitude": 0.13435343077118006
+      },
+      {
+        "agent_count": 50,
+        "metric": "behavioral_diversity",
+        "magnitude": 0.02763547533563064
+      },
+      {
+        "agent_count": 100,
+        "metric": "behavioral_diversity",
+        "magnitude": 0.04201417979378637
+      }
+    ]
+  }
+}
