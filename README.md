@@ -6,7 +6,7 @@
 
 ## The Problem with Modern AI
 
-Today's AI systems are architectural dictatorships. A single massive network processes everything - vision, language, reasoning, planning - through one homogeneous computational substrate. This works, but it's brittle. When GPT fails, the whole system fails. When a vision model hallucinates, there's no internal voice saying "wait, that doesn't make sense."
+Today's AI systems are architectural dictatorships. A single massive network processes everything—vision, language, reasoning, planning—through one homogeneous computational substrate. This works, but it's brittle. When GPT fails, the whole system fails. When a vision model hallucinates, there's no internal voice saying "wait, that doesn't make sense."
 
 Biological brains evolved differently. Your visual cortex doesn't do language. Your hippocampus doesn't control your muscles. Specialized regions communicate through structured pathways, and somehow, from this cacophony of chatter, coherent thought emerges. Ant colonies solve optimization problems no individual ant could comprehend. Bee swarms make decisions through a democracy of waggles.
 
@@ -20,7 +20,7 @@ What if we built AI the same way?
 
 This is testable. Take 20 small neural networks, each with ~100K parameters. Connect them in a graph. Let them pass messages. Compare against a single 2M parameter network.
 
-If the hypothesis is wrong, the monolith wins - more concentrated compute, no communication overhead.
+If the hypothesis is wrong, the monolith wins—more concentrated compute, no communication overhead.
 
 If the hypothesis is right, something interesting happens. The swarm develops capabilities none of its members possess individually. The whole becomes greater than the sum of its parts.
 
@@ -32,7 +32,7 @@ SEESWM is an architecture for testing this hypothesis. It has three core ideas:
 
 **1. Micro-Agents with Specializations**
 
-Instead of one network that does everything, we have many small networks that do specific things. Perception agents extract features. Reasoning agents draw inferences. Memory agents store and retrieve. Planning agents select actions. Each has architectural biases suited to its role - attention for perception, working memory for reasoning, key-value stores for memory.
+Instead of one network that does everything, we have many small networks that do specific things. Perception agents extract features. Reasoning agents draw inferences. Memory agents store and retrieve. Planning agents select actions. Each has architectural biases suited to its role—attention for perception, working memory for reasoning, key-value stores for memory.
 
 **2. Message Passing on Graphs**
 
@@ -40,7 +40,7 @@ Agents don't share weights or hidden states. They communicate by sending message
 
 **3. Grounding in Simulated Worlds**
 
-Abstract benchmarks miss something important about intelligence: it evolved to keep organisms alive. Our agents operate in a grid world with resources to collect, hazards to avoid, and survival pressures that demand coordination. The world model predicts what happens next, and prediction errors drive curiosity - the intrinsic motivation to explore.
+Abstract benchmarks miss something important about intelligence: it evolved to keep organisms alive. Our agents operate in a grid world with resources to collect, hazards to avoid, and survival pressures that demand coordination. The world model predicts what happens next, and prediction errors drive curiosity—the intrinsic motivation to explore.
 
 ---
 
@@ -50,13 +50,13 @@ We built a rigorous validation framework with seven criteria. After training for
 
 | Criterion | Result |
 |-----------|--------|
-| **Ablations** | Swarm: 1.0 reward vs Single Agent: -0.01 reward (p < 0.001) |
-| **Scaling** | Peak at 10 agents (1.24), declines to 0.80 at 100 agents |
-| **Synergy** | Consistent high performance indicates effective coordination |
-| **Baselines** | Beats all 5 baselines: single agent, ensemble, centralized, independent, random (10/10 wins) |
-| **Generalization** | Transfers to unseen environments (100% transfer efficiency) |
-| **Emergence** | Specialization Index 3x higher than random (p < 0.001, Cohen's d = 5.22) |
-| **Interpretability** | Agent importance varies 5x (top agent: 0.29, median: 0.06) |
+| **Ablations** | ✓ Swarm: 1.0 reward vs Single Agent: -0.01 reward (p < 0.001) |
+| **Scaling** | ✓ Peak at 10 agents (1.24), declines to 0.80 at 100 agents |
+| **Synergy** | ✓ Consistent high performance indicates effective coordination |
+| **Baselines** | ✓ Beats all 5 baselines: single agent, ensemble, centralized, independent, random (10/10 wins) |
+| **Generalization** | ✓ Transfers to unseen environments (100% transfer efficiency) |
+| **Emergence** | ✓ Specialization Index 3x higher than random (p < 0.001, Cohen's d = 5.22) |
+| **Interpretability** | ✓ Agent importance varies 5x (top agent: 0.29, median: 0.06) |
 
 **Score: 7/7 criteria addressed. But this is proof-of-concept, not publication-ready.**
 
@@ -64,7 +64,7 @@ We built a rigorous validation framework with seven criteria. After training for
 
 Claiming "emergence" without rigorous methodology invites skepticism. Here's our approach:
 
-**1. Specialization Index (SI)** - Between-agent variance / within-agent variance
+**1. Specialization Index (SI)** — Between-agent variance / within-agent variance
 - High SI means different agents behave differently, but each agent is internally consistent
 - Trained swarm: SI = 0.123, Random baseline: SI = 0.041
 - **3x higher specialization than random initialization**
@@ -76,19 +76,19 @@ Claiming "emergence" without rigorous methodology invites skepticism. Here's our
 
 **3. Role Clustering**
 - Hierarchical clustering on agent action distributions identifies 6 distinct behavioral roles
-- Cluster sizes: [4, 2, 5, 4, 2, 3] agents - non-uniform distribution indicates genuine specialization
+- Cluster sizes: [4, 2, 5, 4, 2, 3] agents — non-uniform distribution indicates genuine specialization
 
-**4. Behavioral Diversity (BD)** - Mean pairwise Jensen-Shannon divergence
+**4. Behavioral Diversity (BD)** — Mean pairwise Jensen-Shannon divergence
 - BD ranges from 0 (identical) to 1 (maximally different); trained swarm achieves 0.57
 - This indicates substantial differentiation: agents are doing genuinely different things, not noisy copies
 
-The swarm doesn't just outperform alternatives - we can now explain *why*. The architecture matters: replacing the swarm with a single network of equivalent parameters causes performance to collapse. Agents show distinct behavioral patterns. The collective succeeds where individuals fail.
+The swarm doesn't just outperform alternatives—we can now explain *why*. The architecture matters: replacing the swarm with a single network of equivalent parameters causes performance to collapse. Agents show distinct behavioral patterns. The collective succeeds where individuals fail.
 
 ---
 
 ## Why This Matters
 
-If this works - really works, with measurable synergy and emergent behaviors - it suggests a different path for AI development. Instead of scaling monolithic models to trillions of parameters, we could scale collectives of specialized agents. This has practical advantages:
+If this works—really works, with measurable synergy and emergent behaviors—it suggests a different path for AI development. Instead of scaling monolithic models to trillions of parameters, we could scale collectives of specialized agents. This has practical advantages:
 
 **Interpretability**: When reasoning happens through message passing between discrete agents, you can inspect the conversation. Which agent said what? What information flowed where? This is harder with a single network's hidden states.
 
@@ -137,10 +137,10 @@ We tested swarms from 4 to 150 agents (all untrained, to isolate architectural e
 **Key Findings:**
 1. **Performance peaks at 10-20 agents** for untrained swarms
 2. **Phase transitions** detected at 10, 20, 50, and 100 agents
-3. **Coordination overhead scales O(n)** - 3 messages per agent per step
-4. **Without training, larger swarms struggle** - this underscores the value of learned coordination
+3. **Coordination overhead scales O(n)** — 3 messages per agent per step
+4. **Without training, larger swarms struggle** — this underscores the value of learned coordination
 
-The scaling trend follows: `reward ~ -0.096 * log(agents)` (R² = 0.70) for random initialization. This means **training is essential** - the architectural advantage doesn't come for free.
+The scaling trend follows: `reward ~ -0.096 * log(agents)` (R² = 0.70) for random initialization. This means **training is essential** — the architectural advantage doesn't come for free.
 
 ---
 
