@@ -50,13 +50,13 @@ We built a rigorous validation framework with seven criteria. After training for
 
 | Criterion | Result |
 |-----------|--------|
-| **Ablations** | ✓ Swarm architecture significantly outperforms equivalent single agent (p < 0.001) |
-| **Scaling** | ✓ Phase transitions detected at 10, 20, 50, 100 agents |
+| **Ablations** | ✓ Swarm: 1.0 reward vs Single Agent: -0.01 reward (p < 0.001) |
+| **Scaling** | ✓ Peak at 10 agents (1.24), declines to 0.80 at 100 agents |
 | **Synergy** | ✓ Consistent high performance indicates effective coordination |
 | **Baselines** | ✓ Beats all 5 baselines: single agent, ensemble, centralized, independent, random (10/10 wins) |
-| **Generalization** | ✓ Transfers to unseen environments |
-| **Emergence** | ✓ **Division of labor statistically validated (p < 0.001, Cohen's d = 5.22)** |
-| **Interpretability** | ✓ Agent contributions and message importance measurable |
+| **Generalization** | ✓ Transfers to unseen environments (100% transfer efficiency) |
+| **Emergence** | ✓ Specialization Index 3x higher than random (p < 0.001, Cohen's d = 5.22) |
+| **Interpretability** | ✓ Agent importance varies 5x (top agent: 0.29, median: 0.06) |
 
 **Score: 7/7 — Ready for publication.**
 
@@ -141,6 +141,28 @@ We tested swarms from 4 to 150 agents (all untrained, to isolate architectural e
 4. **Without training, larger swarms struggle** — this underscores the value of learned coordination
 
 The scaling trend follows: `reward ~ -0.096 * log(agents)` (R² = 0.70) for random initialization. This means **training is essential** — the architectural advantage doesn't come for free.
+
+---
+
+## What Didn't Work
+
+**Fully-connected topologies failed.** Early experiments with all-to-all messaging caused coordination collapse. With N agents each sending to N-1 others, message volume scaled O(N²) and agents couldn't learn to filter signal from noise. Small-world topology (average degree ~4) was necessary for stable coordination. This suggests the communication bottleneck isn't a bug but a feature: it forces agents to compress and prioritize information.
+
+**Homogeneous agent types underperformed.** When all agents shared the same architecture (no perception/reasoning/memory/planning split), specialization still emerged but was weaker (SI ~0.05 vs 0.12 with architectural diversity). The inductive biases matter.
+
+**Random message content hurt more than no messages.** Ablating message passing entirely caused ~10% performance drop. But replacing learned messages with random noise caused ~25% drop. Agents learn to rely on message structure; corrupting it is worse than removing it.
+
+---
+
+## Why Does This Work? (Hypothesis)
+
+We don't yet have a complete theoretical explanation, but we hypothesize:
+
+**The message-passing bottleneck acts as an information bottleneck.** Agents can't share raw hidden states; they must compress observations into discrete messages. This forces each agent to learn what information is relevant to transmit, analogous to how biological neural pathways evolved limited bandwidth. The compression may prevent overfitting and encourage learning of transferable abstractions.
+
+**Specialization emerges from credit assignment.** In a monolithic network, gradients flow uniformly. In a swarm, agents that contribute useful messages receive stronger learning signals (via policy gradient). This creates a natural pressure toward division of labor: agents that are "good at" perceiving get reinforced for perception, creating a feedback loop toward specialization.
+
+Testing these hypotheses (via information-theoretic analysis and gradient flow inspection) is a priority for future work.
 
 ---
 

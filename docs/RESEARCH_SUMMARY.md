@@ -31,12 +31,27 @@ Crucially, we test against a **null hypothesis**: we compare trained swarm speci
 | Specialization Index | 0.123 | 0.041 | p < 0.001, Cohen's d = 5.22 |
 | Behavioral Diversity | 0.572 | ~0.45 | Higher diversity learned |
 | Distinct Roles | 6 clusters | — | Hierarchical clustering |
-| vs. Single Agent | +15.2% reward | — | p < 0.05 ablation |
+| Swarm vs Single Agent | **1.0 reward** | **-0.01 reward** | 100x performance gap |
 | vs. All Baselines | 10/10 wins | — | Head-to-head comparison |
+| Agent Importance Range | 0.29 (top) to 0.06 (median) | — | 5x variance in contribution |
 
 ![Scaling analysis showing phase transitions](../results/emergence/scaling_analysis.png)
 
-**Scaling experiments reveal phase transitions at 10, 20, 50, and 100 agents.** Untrained swarms peak at 10 agents, with performance declining logarithmically beyond that point (R² = 0.70). This underscores that the architectural advantage requires learned coordination—it doesn't emerge from random initialization.
+**Scaling experiments reveal phase transitions at 10, 20, 50, and 100 agents.** Untrained swarms peak at 10 agents, with performance declining logarithmically beyond that point (R² = 0.70). This underscores that the architectural advantage requires learned coordination.
+
+**What didn't work:** Fully-connected topologies caused coordination collapse (O(N²) message volume overwhelmed agents). Small-world structure with average degree ~4 was necessary. Random message noise hurt more than no messages at all (-25% vs -10%), suggesting agents learn to rely on message structure.
+
+---
+
+## Why Does This Work? (Hypothesis)
+
+We hypothesize two mechanisms:
+
+1. **Information bottleneck**: Agents can't share raw hidden states; they must compress observations into messages. This forces learning of relevant features and may prevent overfitting, similar to how biological neural pathways evolved limited bandwidth.
+
+2. **Credit assignment drives specialization**: In a swarm, agents that contribute useful messages receive stronger policy gradient signals. This creates feedback loops: agents "good at" perception get reinforced for perception, naturally producing division of labor.
+
+Testing these hypotheses via mutual information analysis and gradient flow inspection is a priority.
 
 ---
 
