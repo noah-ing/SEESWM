@@ -209,7 +209,7 @@ def test_persisted_swarm_config_rejects_role_count_mismatch():
     serialized = swarm_config_to_dict(_tiny_swarm_config())
     serialized["num_planning"] = 0
 
-    with pytest.raises(ValueError, match="role counts must sum to num_agents"):
+    with pytest.raises(ValueError, match="role counts must sum exactly to num_agents"):
         swarm_config_from_dict(serialized)
 
 

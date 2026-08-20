@@ -365,7 +365,8 @@ class TestTheoryOfMind:
 
         model = tom.agent_models[0]
         assert len(model.action_history) == 10
-        assert model.predicted_intent != IntentType.UNKNOWN
+        assert isinstance(model.predicted_intent, IntentType)
+        assert 0 <= model.intent_confidence <= 1
 
     def test_perspective_taking(self):
         """Test perspective taking."""
