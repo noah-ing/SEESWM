@@ -1,10 +1,10 @@
 """
-Experimental Validation Framework for SEESWM Hypothesis Testing.
+Exploratory evaluation utilities for SEESWM experiments.
 
-This module provides research-grade tools for validating the core hypothesis:
-"Collective intelligence from many small specialized agents, embedded in
-simulated worlds, will exhibit emergent capabilities that equivalent-parameter
-monolithic models cannot."
+These tools help test whether specialized message-passing agents differ from
+matched baselines. They do not make an experiment rigorous on their own;
+credible conclusions still require trained models, controlled comparisons,
+multiple seeds, and auditable artifacts.
 
 Components:
 - Ablation studies

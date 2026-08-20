@@ -1,5 +1,5 @@
 """
-Metrics for measuring swarm collective intelligence.
+Descriptive metrics for comparing swarm and per-agent outputs.
 
 Key metrics:
 - Synergy: collective > sum of individuals
@@ -16,9 +16,9 @@ from dataclasses import dataclass
 
 @dataclass
 class SynergyMetrics:
-    """Metrics quantifying emergent collective intelligence."""
+    """Legacy-named descriptive output-comparison metrics."""
 
-    synergy: float  # Collective - sum of individuals (positive = emergent)
+    synergy: float  # Aggregate score minus the per-agent reference score
     redundancy: float  # How much agents overlap
     specialization: float  # How distinct are agent outputs
     collective_accuracy: float

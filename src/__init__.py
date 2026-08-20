@@ -1,7 +1,3 @@
-"""
-SEESWM: Self-Evolving Embodied Swarm-World-Modeler
-
-A distributed AGI architecture using swarms of specialized micro-agents.
-"""
+"""Experimental message-passing neural-agent components for SEESWM."""
 
 __version__ = "0.1.0"

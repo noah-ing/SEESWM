@@ -1,15 +1,20 @@
 """
 Specialization training for SEESWM.
 
-Phase 3: Agent specialization with typed messaging and role emergence tracking.
-Trains specialized agent architectures and measures emergent division of labor.
+Phase 3: Agent specialization with typed messaging and role-pattern tracking.
+Trains specialized architectures and records descriptive communication metrics.
 """
 
 import argparse
 import sys
 from pathlib import Path
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError, version as package_version
 from typing import Optional, Dict, List
+import math
+import platform
+import random
+import subprocess
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -20,18 +25,189 @@ import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
 
-from src.swarm.graph import SwarmGraph, SwarmConfig, TopologyType
+from src.swarm.graph import (
+    SWARM_STATE_SCHEMA_VERSION,
+    SwarmGraph,
+    SwarmConfig,
+    TopologyType,
+)
 from src.swarm.specialized_graph import (
     SpecializedSwarmGraph,
     SpecializedSwarmConfig,
+    specialized_swarm_config_to_dict,
 )
-from src.swarm.typed_messaging import MessageType, AGENT_MESSAGE_TYPES
 from src.world_model.jepa import WorldModel
 from src.environment.cosmos import CosmosEnvironment, EnvironmentConfig
 from src.training import PPOConfig, TrajectoryBuffer, PolicyHead, ValueHead, Transition
-from src.agents.micro_agent import AgentType
-from src.utils.config import Config
 from src.utils.logging import setup_logger, MetricsLogger
+from experiments.validate_rigorously import load_checkpoint_with_digest
+
+
+def _source_revision() -> str | None:
+    """Read the local Git revision without making checkpointing depend on Git."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parent.parent,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    revision = result.stdout.strip()
+    return revision if result.returncode == 0 and revision else None
+
+
+def _source_dirty() -> bool | None:
+    """Report tracked or untracked worktree changes, or None without Git."""
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=Path(__file__).resolve().parent.parent,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return bool(result.stdout.strip()) if result.returncode == 0 else None
+
+
+def _dependency_versions() -> dict[str, str | None]:
+    versions: dict[str, str | None] = {"python": platform.python_version()}
+    for distribution in ("torch", "numpy", "networkx"):
+        try:
+            versions[distribution] = str(package_version(distribution))
+        except PackageNotFoundError:
+            versions[distribution] = None
+    return versions
+
+
+def _environment_config_to_dict(config: EnvironmentConfig) -> dict:
+    return {
+        "grid_size": int(config.grid_size),
+        "num_resources": int(config.num_resources),
+        "num_hazards": int(config.num_hazards),
+        "num_agents": int(config.num_agents),
+        "vision_radius": int(config.vision_radius),
+        "enable_respawn": bool(config.enable_respawn),
+        "respawn_delay": int(config.respawn_delay),
+        "num_food": int(config.num_food),
+        "num_water": int(config.num_water),
+        "num_material": int(config.num_material),
+        "hunger_rate": float(config.hunger_rate),
+        "thirst_rate": float(config.thirst_rate),
+        "starvation_threshold": float(config.starvation_threshold),
+        "movement_cost": float(config.movement_cost),
+        "stay_cost": float(config.stay_cost),
+        "max_steps": int(config.max_steps),
+    }
+
+
+def _ppo_config_to_dict(config: PPOConfig) -> dict:
+    return {
+        "learning_rate": float(config.learning_rate),
+        "gamma": float(config.gamma),
+        "gae_lambda": float(config.gae_lambda),
+        "clip_epsilon": float(config.clip_epsilon),
+        "num_epochs": int(config.num_epochs),
+        "batch_size": int(config.batch_size),
+        "max_grad_norm": float(config.max_grad_norm),
+        "value_coef": float(config.value_coef),
+        "entropy_coef": float(config.entropy_coef),
+        "curiosity_coef": float(config.curiosity_coef),
+        "device": str(config.device),
+    }
+
+
+def _to_native(value: object) -> object:
+    """Recursively reject custom objects and normalize NumPy scalar metrics."""
+    if value is None or type(value) in (bool, int, str):
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError("Checkpoint metrics must be finite")
+        return value
+    if isinstance(value, np.generic):
+        return _to_native(value.item())
+    if type(value) is dict:
+        result = {}
+        for key, item in value.items():
+            if type(key) is not str:
+                raise TypeError(
+                    "Checkpoint metric keys must be strings, "
+                    f"got {type(key)}"
+                )
+            result[key] = _to_native(item)
+        return result
+    if type(value) in (list, tuple):
+        return [_to_native(item) for item in value]
+    raise TypeError(f"Unsupported checkpoint metric value: {type(value)}")
+
+
+def _build_checkpoint(
+    *,
+    trainer: "SpecializationPPOTrainer",
+    swarm: SpecializedSwarmGraph,
+    world_model: WorldModel,
+    env_config: EnvironmentConfig,
+    num_iterations: int,
+    rollout_steps: int,
+    topology: str,
+    iteration: int,
+    metrics: dict,
+    role_metrics: dict,
+    seed: int,
+    source_revision: str | None,
+    source_dirty: bool | None,
+    dependency_versions: dict[str, str | None],
+) -> dict:
+    return {
+        "schema_version": SWARM_STATE_SCHEMA_VERSION,
+        "checkpoint_type": "specialized_ppo_training",
+        "swarm_config": specialized_swarm_config_to_dict(swarm.config),
+        "swarm_state": swarm.state_dict(),
+        "policy_head": {
+            "type": "policy_head_tanh",
+            "input_dim": int(trainer.output_dim),
+            "hidden_dim": 64,
+            "num_actions": int(trainer.num_actions),
+            "state_dict": dict(trainer.policy_head.state_dict()),
+        },
+        "value_head": {
+            "type": "value_head_tanh",
+            "input_dim": int(trainer.output_dim),
+            "hidden_dim": 64,
+            "state_dict": dict(trainer.value_head.state_dict()),
+        },
+        "world_model": {
+            "type": "jepa",
+            "obs_dim": int(world_model.obs_dim),
+            "action_dim": int(world_model.action_dim),
+            "latent_dim": int(world_model.latent_dim),
+            "num_hierarchy_levels": int(len(world_model.predictors)),
+            "ema_decay": float(world_model.ema_decay),
+            "state_dict": dict(world_model.state_dict()),
+        },
+        "environment_config": _environment_config_to_dict(env_config),
+        "training_config": {
+            "algorithm": "ppo_with_curiosity",
+            "num_iterations": int(num_iterations),
+            "rollout_steps": int(rollout_steps),
+            "topology": str(topology),
+            "ppo": _ppo_config_to_dict(trainer.config),
+        },
+        "iteration": int(iteration),
+        "training_metrics": _to_native(metrics),
+        "role_metrics": _to_native(role_metrics),
+        "seed": int(seed),
+        "source_revision": source_revision,
+        "source_dirty": source_dirty,
+        "dependency_versions": dict(dependency_versions),
+    }
 
 
 class SpecializationPPOTrainer:
@@ -40,7 +216,7 @@ class SpecializationPPOTrainer:
 
     Key differences from base PPOTrainer:
     - Uses SpecializedSwarmGraph with typed messaging
-    - Tracks role emergence metrics
+    - Tracks descriptive role-pattern metrics
     - Reports specialization-specific statistics
     """
 
@@ -293,10 +469,28 @@ def train_specialized(
     seed: int = 42,
 ):
     """
-    Train specialized swarm with role emergence tracking.
+    Train a specialized swarm with role-pattern tracking.
     """
+    if num_iterations < 1 or rollout_steps < 1:
+        raise ValueError("iterations and rollout steps must be positive")
+    if seed < 0:
+        raise ValueError("seed must be non-negative")
+    supported_topologies = {
+        "hierarchical",
+        "modular",
+        "small_world",
+        "scale_free",
+    }
+    if topology not in supported_topologies:
+        raise ValueError(f"unsupported topology: {topology!r}")
+
+    random.seed(seed)
     torch.manual_seed(seed)
     np.random.seed(seed)
+
+    source_revision = _source_revision()
+    source_dirty = _source_dirty()
+    dependency_versions = _dependency_versions()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = Path(log_dir) / f"specialized_{timestamp}"
@@ -415,20 +609,49 @@ def train_specialized(
 
             if trainer_stats["avg_reward_10"] > best_avg_reward:
                 best_avg_reward = trainer_stats["avg_reward_10"]
-                torch.save({
-                    "swarm": swarm.state_dict(),
-                    "world_model": world_model.state_dict(),
-                    "iteration": iteration,
-                    "avg_reward": best_avg_reward,
-                    "role_metrics": role_metrics,
-                }, run_dir / "best_model.pt")
+                torch.save(
+                    _build_checkpoint(
+                        trainer=trainer,
+                        swarm=swarm,
+                        world_model=world_model,
+                        env_config=env_config,
+                        num_iterations=num_iterations,
+                        rollout_steps=rollout_steps,
+                        topology=topology,
+                        iteration=iteration,
+                        metrics={
+                            **trainer_stats,
+                            "best_avg_reward": best_avg_reward,
+                        },
+                        role_metrics=role_metrics,
+                        seed=seed,
+                        source_revision=source_revision,
+                        source_dirty=source_dirty,
+                        dependency_versions=dependency_versions,
+                    ),
+                    run_dir / "best_model.pt",
+                )
 
         if iteration % 100 == 0 and iteration > 0:
-            torch.save({
-                "swarm": swarm.state_dict(),
-                "world_model": world_model.state_dict(),
-                "iteration": iteration,
-            }, run_dir / f"checkpoint_{iteration}.pt")
+            torch.save(
+                _build_checkpoint(
+                    trainer=trainer,
+                    swarm=swarm,
+                    world_model=world_model,
+                    env_config=env_config,
+                    num_iterations=num_iterations,
+                    rollout_steps=rollout_steps,
+                    topology=topology,
+                    iteration=iteration,
+                    metrics=trainer.get_stats(),
+                    role_metrics=swarm.get_role_emergence_metrics(),
+                    seed=seed,
+                    source_revision=source_revision,
+                    source_dirty=source_dirty,
+                    dependency_versions=dependency_versions,
+                ),
+                run_dir / f"checkpoint_{iteration}.pt",
+            )
 
     # Final summary
     logger.info("\n" + "=" * 60)
@@ -443,19 +666,35 @@ def train_specialized(
     logger.info(f"Final avg reward: {final_stats['avg_reward_100']:.3f}")
     logger.info(f"Best avg reward: {best_avg_reward:.3f}")
 
-    logger.info("\nRole Emergence Metrics:")
+    logger.info("\nRole-pattern metrics:")
     logger.info(f"  Specialization entropy: {final_role_metrics.get('avg_specialization_entropy', 0):.3f}")
 
     type_concentrations = final_role_metrics.get("type_concentrations", {})
     for agent_type, concentration in type_concentrations.items():
         logger.info(f"  {agent_type} concentration: {concentration:.3f}")
 
-    torch.save({
-        "swarm": swarm.state_dict(),
-        "world_model": world_model.state_dict(),
-        "final_stats": final_stats,
-        "role_metrics": final_role_metrics,
-    }, run_dir / "final_model.pt")
+    torch.save(
+        _build_checkpoint(
+            trainer=trainer,
+            swarm=swarm,
+            world_model=world_model,
+            env_config=env_config,
+            num_iterations=num_iterations,
+            rollout_steps=rollout_steps,
+            topology=topology,
+            iteration=max(num_iterations - 1, 0),
+            metrics={
+                **final_stats,
+                "best_avg_reward": best_avg_reward,
+            },
+            role_metrics=final_role_metrics,
+            seed=seed,
+            source_revision=source_revision,
+            source_dirty=source_dirty,
+            dependency_versions=dependency_versions,
+        ),
+        run_dir / "final_model.pt",
+    )
 
     metrics.save()
     logger.info(f"\nResults saved to: {run_dir}")
@@ -596,27 +835,30 @@ def analyze_role_emergence(
     device: str = "cpu",
 ):
     """
-    Analyze role emergence from a trained checkpoint.
+    Analyze descriptive role-pattern metrics from a trained checkpoint.
     """
     print("=" * 60)
-    print("Role Emergence Analysis")
+    print("Role-pattern analysis")
     print("=" * 60)
 
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    role_metrics = checkpoint.get("role_metrics", {})
+    checkpoint, digest = load_checkpoint_with_digest(Path(checkpoint_path))
+    print(f"Checkpoint SHA-256: {digest}")
+    role_metrics = checkpoint.get("role_metrics")
+    if type(role_metrics) is not dict:
+        raise TypeError("checkpoint role_metrics must be a native dict")
 
-    print("\nRole Emergence Metrics:")
+    print("\nRole-pattern metrics:")
     print(f"  Avg specialization entropy: {role_metrics.get('avg_specialization_entropy', 0):.4f}")
 
     type_concentrations = role_metrics.get("type_concentrations", {})
-    print("\nType Concentrations (higher = more specialized):")
+    print("\nType concentrations (higher = more concentrated):")
     for agent_type, concentration in type_concentrations.items():
         bar = "=" * int(concentration * 50)
         print(f"  {agent_type:12s}: {concentration:.3f} |{bar}|")
 
     print("\nInterpretation:")
-    print("  - Low entropy = agents are highly specialized")
-    print("  - High concentration = agents send their expected message types")
+    print("  - Lower entropy means message types were more concentrated")
+    print("  - Concentration reports use of architecture-associated message types")
 
     return role_metrics
 

@@ -1,57 +1,124 @@
 #!/usr/bin/env python3
 """
-Rigorous Emergence Detection & Scaling Analysis for SEESWM.
+Exploratory behavioral-pattern and scaling analysis for SEESWM.
 
-This script provides interviewer-proof methodology for:
-1. Measuring and defining "division of labor" with clear metrics
-2. Distinguishing genuine specialization from random behavioral variance
+This script provides utilities for:
+1. Measuring candidate "division of labor" with explicit metrics
+2. Comparing candidate specialization with random behavioral variance
 3. Visualizing agent roles over time
-4. Running scaling experiments with phase transition detection
+4. Running scaling experiments with heuristic slope-change flags
 
-Key Innovation: We compare against NULL HYPOTHESIS (random/untrained baseline)
-to prove specialization is learned, not random.
+When a trained checkpoint is supplied, the candidate model can be compared with
+randomly initialized swarms. Without `--model`, all results describe random
+initialization and cannot demonstrate learned specialization.
 
 Metrics Defined:
 - Specialization Index (SI): Between-agent variance / within-agent variance
 - Role Consistency (RC): 1 - mean(within-agent action entropy)
 - Behavioral Diversity (BD): Mean pairwise Jensen-Shannon divergence between agent action distributions
-- Communication Efficiency (CE): Performance gain / messages sent
 
 Usage:
-    python experiments/emergence_scaling_analysis.py --device cpu --output results/emergence
+    python experiments/emergence_scaling_analysis.py --device cpu --output results/behavioral-local
 """
 
 import argparse
 import json
 import logging
-import os
+import random
+import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any
-from collections import defaultdict
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 
 import numpy as np
 import torch
 import torch.nn as nn
 from scipy import stats
-from scipy.spatial.distance import jensenshannon, pdist, squareform
-from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
-from scipy.stats import entropy, permutation_test
+from scipy.cluster.hierarchy import fcluster, linkage
+from scipy.spatial.distance import jensenshannon
+from scipy.stats import entropy
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.swarm.graph import SwarmGraph, SwarmConfig, TopologyType
-from src.environment.cosmos import CosmosEnvironment
+from src.swarm.graph import (
+    SwarmGraph,
+    SwarmConfig,
+    TopologyType,
+    swarm_config_from_dict,
+    swarm_config_to_dict,
+)
+from src.environment.cosmos import EnvironmentConfig
+from experiments.validate_rigorously import (
+    build_candidate,
+    build_environment,
+    environment_config_to_dict,
+    load_checkpoint_with_digest,
+    set_swarm_eval,
+)
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)s | %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
-logger = logging.getLogger('emergence_analysis')
+logger = logging.getLogger('behavioral_analysis')
+
+
+def _analysis_source_provenance() -> Dict[str, Any]:
+    """Return the current revision and dirty flag without requiring Git."""
+    repository = Path(__file__).resolve().parent.parent
+    try:
+        revision = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'],
+            cwd=repository,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        status = subprocess.run(
+            ['git', 'status', '--porcelain', '--untracked-files=normal'],
+            cwd=repository,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {'revision': None, 'dirty': None}
+    return {
+        'revision': revision.stdout.strip() if revision.returncode == 0 else None,
+        'dirty': bool(status.stdout.strip()) if status.returncode == 0 else None,
+    }
+
+
+def _random_control_seeds(candidate_seed: int, count: int) -> List[int]:
+    """Choose declared nonnegative control seeds excluding the candidate seed."""
+    seeds: List[int] = []
+    value = 0
+    while len(seeds) < count:
+        if value != candidate_seed:
+            seeds.append(value)
+        value += 1
+    return seeds
+
+
+def _seed_everything(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+
+def _balanced_role_counts(num_agents: int) -> Tuple[int, int, int, int]:
+    """Assign every agent to exactly one of the four declared roles."""
+    if num_agents < 1:
+        raise ValueError("num_agents must be positive")
+    base, remainder = divmod(num_agents, 4)
+    counts = [base + int(index < remainder) for index in range(4)]
+    return counts[0], counts[1], counts[2], counts[3]
 
 
 # =============================================================================
@@ -66,7 +133,6 @@ class AgentBehaviorProfile:
     action_distribution: np.ndarray  # Normalized action counts
     output_mean: float
     output_std: float
-    message_frequency: float
     activation_patterns: List[np.ndarray] = field(default_factory=list)
 
 
@@ -78,10 +144,12 @@ class SpecializationMetrics:
     role_consistency: float      # RC: 1 - mean(within-agent entropy)
     behavioral_diversity: float  # BD: mean pairwise JS divergence
 
-    # Statistical validation
-    null_hypothesis_si: float    # SI for random baseline
-    p_value: float               # Significance vs null
-    effect_size: float           # Cohen's d
+    # Fresh-random comparison (descriptive; not independent validation)
+    random_control_si: Optional[float]
+    monte_carlo_p_value: Optional[float]
+    standardized_null_difference: Optional[float]
+    null_sample_count: int
+    random_comparison_performed: bool
 
     # Cluster analysis
     num_distinct_roles: int      # Number of behavioral clusters
@@ -102,52 +170,98 @@ class ScalingDataPoint:
     mean_reward: float
     std_reward: float
 
-    # Emergence metrics
+    # Behavioral-pattern metrics
     specialization_index: float
     behavioral_diversity: float
 
-    # Efficiency metrics
-    messages_per_step: float
+    # Architectural work proxy
+    agent_forward_calls_per_step: int
     compute_time_ms: float
-
-    # Synergy
-    synergy_score: float
 
 
 @dataclass
-class PhaseTransition:
-    """Detected phase transition."""
+class SlopeChangeFlag:
+    """Heuristic local slope-change flag; not evidence of a phase transition."""
     agent_count: int
     metric_name: str
     before_slope: float
     after_slope: float
     magnitude: float
-    confidence: float
+    relative_change_score: float
 
 
 # =============================================================================
-# EMERGENCE DETECTION
+# BEHAVIORAL-PATTERN ANALYSIS
 # =============================================================================
 
 class EmergenceAnalyzer:
     """
-    Rigorous emergence detection with null hypothesis testing.
+    Exploratory behavioral-pattern analysis with a random-init comparison.
 
-    Key methodology:
-    1. Collect behavioral data from trained swarm
-    2. Collect behavioral data from RANDOM (untrained) swarm
-    3. Compare specialization metrics using permutation tests
+    Methodology:
+    1. Collect behavioral data from a candidate swarm
+    2. Collect behavioral data from randomly initialized controls
+    3. Compare descriptive specialization metrics
     4. Cluster agents into distinct roles
-    5. Visualize role evolution over training
+
+    These diagnostics do not establish emergence. A trained candidate must use
+    the exact policy head restored from its checkpoint; representation vectors
+    are never treated as environment actions directly.
     """
 
     def __init__(
         self,
         device: str = "cpu",
         num_actions: int = 5,
+        policy_head: Optional[nn.Module] = None,
+        policy_head_spec: Optional[Dict[str, Any]] = None,
+        candidate_seed: int = 0,
     ):
         self.device = device
         self.num_actions = num_actions
+        self.policy_head = policy_head
+        self.policy_head_spec = policy_head_spec
+        self.candidate_seed = candidate_seed
+
+    def _policy_logits(self, representation: torch.Tensor) -> torch.Tensor:
+        """Map a swarm representation to exactly ``num_actions`` logits."""
+        logits = (
+            self.policy_head(representation)
+            if self.policy_head is not None
+            else representation
+        )
+        if logits.ndim != 2 or logits.shape[0] != 1:
+            raise ValueError(f"invalid policy-logit shape: {tuple(logits.shape)}")
+        if logits.shape[-1] != self.num_actions:
+            raise ValueError(
+                "a policy head is required when swarm output_dim differs from "
+                f"the {self.num_actions}-action environment"
+            )
+        return logits
+
+    def _fresh_policy_head(self) -> Optional[nn.Module]:
+        """Create a randomly initialized control head matching the candidate."""
+        if self.policy_head_spec is None:
+            return None
+        policy_type = self.policy_head_spec.get("type")
+        input_dim = int(self.policy_head_spec["input_dim"])
+        hidden_dim = int(self.policy_head_spec["hidden_dim"])
+        num_actions = int(self.policy_head_spec["num_actions"])
+        if num_actions != self.num_actions:
+            raise ValueError("control policy action count does not match the analyzer")
+        if policy_type == "mlp_relu":
+            policy = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, num_actions),
+            )
+        elif policy_type == "policy_head_tanh":
+            from src.training import PolicyHead
+
+            policy = PolicyHead(input_dim, num_actions, hidden_dim=hidden_dim)
+        else:
+            raise ValueError(f"unsupported policy head type: {policy_type!r}")
+        return policy.to(self.device).eval()
 
     def collect_behavioral_data(
         self,
@@ -155,18 +269,22 @@ class EmergenceAnalyzer:
         env_config: Dict,
         num_episodes: int = 50,
         steps_per_episode: int = 100,
+        evaluation_seed: Optional[int] = None,
     ) -> Dict[int, AgentBehaviorProfile]:
         """
         Collect comprehensive behavioral data from swarm.
 
         Returns dict mapping agent_id -> AgentBehaviorProfile
         """
-        env = CosmosEnvironment(**env_config)
+        if num_episodes < 1 or steps_per_episode < 1:
+            raise ValueError("behavioral sampling counts must be positive")
+        if evaluation_seed is not None:
+            _seed_everything(evaluation_seed)
+        env = build_environment(env_config)
 
         # Per-agent tracking
         agent_actions = {i: [] for i in swarm.agents.keys()}
         agent_outputs = {i: [] for i in swarm.agents.keys()}
-        agent_messages = {i: 0 for i in swarm.agents.keys()}
 
         for ep in range(num_episodes):
             obs = env.reset()
@@ -176,20 +294,21 @@ class EmergenceAnalyzer:
                 obs_tensor = obs[0].to_tensor(self.device).unsqueeze(0)
 
                 with torch.no_grad():
-                    action_logits = swarm.step(obs_tensor)
+                    representation = swarm.step(obs_tensor)
+                    action_logits = self._policy_logits(representation)
                     action = action_logits.argmax(dim=-1).item()
 
                     # Track per-agent behaviors
                     for agent_id, agent in swarm.agents.items():
                         if hasattr(agent, 'last_output') and agent.last_output is not None:
-                            out = agent.last_output.cpu().numpy().flatten()
+                            agent_output = agent.last_output
+                            out = agent_output.cpu().numpy().flatten()
                             agent_outputs[agent_id].append(out)
 
-                            # Derive action preference from output
-                            if len(out) >= self.num_actions:
-                                preferred_action = np.argmax(out[:self.num_actions])
-                            else:
-                                preferred_action = int(out.mean() > 0)
+                            # Map each agent representation through the same
+                            # candidate policy head before deriving a preference.
+                            agent_logits = self._policy_logits(agent_output)
+                            preferred_action = int(agent_logits.argmax(dim=-1).item())
                             agent_actions[agent_id].append(preferred_action)
 
                 obs, rewards, dones = env.step([action])
@@ -226,7 +345,6 @@ class EmergenceAnalyzer:
                 action_distribution=action_dist,
                 output_mean=output_mean,
                 output_std=output_std,
-                message_frequency=agent_messages.get(agent_id, 0) / (num_episodes * steps_per_episode),
                 activation_patterns=outputs[:100] if outputs else [],  # Keep subset
             )
 
@@ -253,8 +371,8 @@ class EmergenceAnalyzer:
         # Between-agent variance: variance of agent means
         between_var = np.var(agent_means)
 
-        # Within-agent variance: mean of individual agent stds
-        within_var = np.mean([p.output_std for p in profiles.values()])
+        # Within-agent variance: mean of squared per-agent standard deviations.
+        within_var = np.mean([p.output_std**2 for p in profiles.values()])
 
         # SI = between / within (higher = more specialized)
         si = between_var / (within_var + 1e-8)
@@ -294,7 +412,7 @@ class EmergenceAnalyzer:
 
         BD = Mean pairwise Jensen-Shannon divergence between agent action distributions.
 
-        High BD means agents have genuinely different behavioral strategies.
+        High BD means the observed action distributions differ more.
         """
         if len(profiles) < 2:
             return 0.0
@@ -359,53 +477,69 @@ class EmergenceAnalyzer:
             n_clusters = best_k
 
         labels = fcluster(Z, n_clusters, criterion='maxclust')
+        # ``maxclust`` is an upper bound and can return fewer clusters. Report
+        # only labels that actually occurred, normalized to 1..k.
+        unique_labels = sorted(int(label) for label in np.unique(labels))
+        normalized = {
+            label: index + 1 for index, label in enumerate(unique_labels)
+        }
+        normalized_labels = [normalized[int(label)] for label in labels]
 
-        return list(labels), n_clusters
+        return normalized_labels, len(unique_labels)
 
-    def run_null_hypothesis_test(
+    def run_random_init_comparison(
         self,
         trained_profiles: Dict[int, AgentBehaviorProfile],
         swarm_config: Dict,
         env_config: Dict,
         num_permutations: int = 100,
-    ) -> Tuple[float, float, float]:
+        num_episodes: int = 50,
+        steps_per_episode: int = 100,
+    ) -> Tuple[float, float, Optional[float], int]:
         """
-        Test specialization against null hypothesis (random baseline).
+        Compare the candidate SI with fresh random-initialization controls.
 
-        Null hypothesis: Observed specialization is no different from random initialization.
+        This is an exploratory Monte Carlo comparison, not an independently
+        validated hypothesis test.
 
-        Returns (null_si, p_value, effect_size)
+        Returns (null_si, plus-one Monte Carlo p, standardized difference, n).
         """
         trained_si = self.compute_specialization_index(trained_profiles)
 
         # Generate null distribution by testing random (untrained) swarms
         null_sis = []
 
-        for seed in range(num_permutations):
-            torch.manual_seed(seed)
-            np.random.seed(seed)
+        for seed in _random_control_seeds(self.candidate_seed, num_permutations):
+            _seed_everything(seed)
 
-            # Create random swarm (not trained)
-            num_agents = swarm_config.get('num_agents', 20)
-            config = SwarmConfig(
-                num_agents=num_agents,
-                input_dim=swarm_config.get('input_dim', 137),
-                hidden_dim=swarm_config.get('hidden_dim', 128),
-                output_dim=swarm_config.get('output_dim', 5),
-                message_dim=swarm_config.get('hidden_dim', 128),
-                topology=TopologyType.SMALL_WORLD,
-                num_perception=num_agents // 4,
-                num_reasoning=num_agents // 4,
-                num_memory=num_agents // 4,
-                num_planning=num_agents - 3 * (num_agents // 4),
+            # Match the candidate architecture and topology while using fresh,
+            # untrained parameters for both the swarm and policy head.
+            if self.policy_head_spec and self.policy_head_spec.get("type") == "policy_head_tanh":
+                from src.swarm.specialized_graph import (
+                    SpecializedSwarmGraph,
+                    specialized_swarm_config_from_dict,
+                )
+
+                config = specialized_swarm_config_from_dict(swarm_config)
+                random_swarm = SpecializedSwarmGraph(config, device=self.device)
+            else:
+                config = swarm_config_from_dict(swarm_config)
+                random_swarm = SwarmGraph(config, device=self.device)
+            set_swarm_eval(random_swarm)
+            random_analyzer = EmergenceAnalyzer(
+                device=self.device,
+                num_actions=self.num_actions,
+                policy_head=self._fresh_policy_head(),
+                policy_head_spec=self.policy_head_spec,
+                candidate_seed=seed,
             )
-            random_swarm = SwarmGraph(config, device=self.device)
 
             # Collect behavioral data from random swarm
-            random_profiles = self.collect_behavioral_data(
+            random_profiles = random_analyzer.collect_behavioral_data(
                 random_swarm, env_config,
-                num_episodes=10,  # Fewer for null distribution
-                steps_per_episode=50,
+                num_episodes=num_episodes,
+                steps_per_episode=steps_per_episode,
+                evaluation_seed=self.candidate_seed,
             )
 
             null_si = self.compute_specialization_index(random_profiles)
@@ -415,13 +549,25 @@ class EmergenceAnalyzer:
         null_mean = null_sis.mean()
         null_std = null_sis.std()
 
-        # P-value: proportion of null samples >= trained
-        p_value = (null_sis >= trained_si).mean()
+        # Plus-one correction prevents an impossible zero p-value and gives the
+        # finite Monte Carlo resolution explicitly.
+        exceedances = int(np.sum(null_sis >= trained_si))
+        p_value = (exceedances + 1) / (len(null_sis) + 1)
 
-        # Effect size: Cohen's d
-        effect_size = (trained_si - null_mean) / (null_std + 1e-8)
+        # This is not Cohen's d: there is one candidate aggregate and a random
+        # control distribution, so report only a standardized null difference.
+        standardized_difference = (
+            None
+            if null_std <= np.finfo(float).eps
+            else float((trained_si - null_mean) / null_std)
+        )
 
-        return float(null_mean), float(p_value), float(effect_size)
+        return (
+            float(null_mean),
+            float(p_value),
+            standardized_difference,
+            int(len(null_sis)),
+        )
 
     def analyze_full(
         self,
@@ -429,12 +575,19 @@ class EmergenceAnalyzer:
         swarm_config: Dict,
         env_config: Dict,
         num_episodes: int = 50,
+        steps_per_episode: int = 100,
         run_null_test: bool = True,
     ) -> SpecializationMetrics:
         """Run complete specialization analysis."""
 
-        logger.info("Collecting behavioral data from trained swarm...")
-        profiles = self.collect_behavioral_data(swarm, env_config, num_episodes)
+        logger.info("Collecting behavioral data from candidate swarm...")
+        profiles = self.collect_behavioral_data(
+            swarm,
+            env_config,
+            num_episodes=num_episodes,
+            steps_per_episode=steps_per_episode,
+            evaluation_seed=self.candidate_seed,
+        )
 
         logger.info("Computing specialization metrics...")
         si = self.compute_specialization_index(profiles)
@@ -446,30 +599,57 @@ class EmergenceAnalyzer:
         logger.info(f"  Behavioral Diversity (BD): {bd:.4f}")
 
         # Null hypothesis test
-        null_si, p_value, effect_size = 0.0, 1.0, 0.0
+        random_control_si = None
+        monte_carlo_p_value = None
+        standardized_null_difference = None
+        null_sample_count = 0
+        random_comparison_performed = False
         if run_null_test:
-            logger.info("Running null hypothesis test (this may take a while)...")
-            null_si, p_value, effect_size = self.run_null_hypothesis_test(
-                profiles, swarm_config, env_config, num_permutations=30
+            logger.info("Running fresh-random comparison (this may take a while)...")
+            (
+                random_control_si,
+                monte_carlo_p_value,
+                standardized_null_difference,
+                null_sample_count,
+            ) = self.run_random_init_comparison(
+                profiles,
+                swarm_config,
+                env_config,
+                num_permutations=30,
+                num_episodes=num_episodes,
+                steps_per_episode=steps_per_episode,
             )
+            random_comparison_performed = True
 
-            sig = "***" if p_value < 0.001 else "**" if p_value < 0.01 else "*" if p_value < 0.05 else ""
-            logger.info(f"  Null SI: {null_si:.4f}, p-value: {p_value:.4f}{sig}")
-            logger.info(f"  Effect size (Cohen's d): {effect_size:.4f}")
+            logger.info(
+                "  Random-control SI: %.4f, plus-one Monte Carlo p=%.4f (n=%d)",
+                random_control_si,
+                monte_carlo_p_value,
+                null_sample_count,
+            )
+            if standardized_null_difference is None:
+                logger.info("  Standardized null difference: undefined (zero null SD)")
+            else:
+                logger.info(
+                    "  Standardized null difference: %.4f",
+                    standardized_null_difference,
+                )
 
         # Cluster analysis
-        logger.info("Clustering agents into roles...")
+        logger.info("Clustering observed action distributions...")
         cluster_labels, num_roles = self.cluster_agents_into_roles(profiles)
         cluster_sizes = [cluster_labels.count(i+1) for i in range(num_roles)]
-        logger.info(f"  Detected {num_roles} distinct roles: {cluster_sizes}")
+        logger.info(f"  Returned {num_roles} behavioral cluster(s): {cluster_sizes}")
 
         return SpecializationMetrics(
             specialization_index=si,
             role_consistency=rc,
             behavioral_diversity=bd,
-            null_hypothesis_si=null_si,
-            p_value=p_value,
-            effect_size=effect_size,
+            random_control_si=random_control_si,
+            monte_carlo_p_value=monte_carlo_p_value,
+            standardized_null_difference=standardized_null_difference,
+            null_sample_count=null_sample_count,
+            random_comparison_performed=random_comparison_performed,
             num_distinct_roles=num_roles,
             cluster_labels=cluster_labels,
             cluster_sizes=cluster_sizes,
@@ -483,13 +663,13 @@ class EmergenceAnalyzer:
 
 class ScalingAnalyzer:
     """
-    Scaling analysis with phase transition detection.
+    Random-initialization scaling analysis with heuristic slope-change flags.
 
     Measures:
     1. Performance vs agent count
     2. Specialization vs agent count
-    3. Communication overhead vs agent count
-    4. Phase transitions where behavior qualitatively changes
+    3. Agent-forward-call work proxy vs agent count
+    4. Local slope changes for follow-up analysis
     """
 
     def __init__(
@@ -508,9 +688,13 @@ class ScalingAnalyzer:
         swarm: SwarmGraph,
         env_config: Dict,
         num_episodes: int = 20,
+        evaluation_seed: int = 0,
     ) -> Dict[str, float]:
-        """Evaluate swarm performance."""
-        env = CosmosEnvironment(**env_config)
+        """Evaluate a fresh policy under a declared environment seed."""
+        if num_episodes < 1:
+            raise ValueError("num_episodes must be positive")
+        _seed_everything(evaluation_seed)
+        env = build_environment(env_config)
 
         rewards = []
         steps_list = []
@@ -526,6 +710,14 @@ class ScalingAnalyzer:
 
                 with torch.no_grad():
                     action_logits = swarm.step(obs_tensor)
+                    if (
+                        action_logits.ndim != 2
+                        or action_logits.shape != (1, self.base_output_dim)
+                    ):
+                        raise ValueError(
+                            "scaling policy returned an invalid action-logit shape: "
+                            f"{tuple(action_logits.shape)}"
+                        )
                     action = action_logits.argmax(dim=-1).item()
 
                 obs, rew, dones = env.step([action])
@@ -553,6 +745,11 @@ class ScalingAnalyzer:
     ) -> List[ScalingDataPoint]:
         """Run scaling sweep across different agent counts."""
 
+        if num_seeds < 1 or num_eval_episodes < 1:
+            raise ValueError("num_seeds and num_eval_episodes must be positive")
+        if not agent_counts or any(count < 1 for count in agent_counts):
+            raise ValueError("agent_counts must contain positive values")
+
         data_points = []
 
         for n_agents in agent_counts:
@@ -563,12 +760,13 @@ class ScalingAnalyzer:
             seed_rewards = []
             seed_sis = []
             seed_bds = []
+            seed_compute_times = []
 
             for seed in range(num_seeds):
-                torch.manual_seed(seed)
-                np.random.seed(seed)
+                _seed_everything(seed)
 
                 # Create swarm
+                role_counts = _balanced_role_counts(n_agents)
                 config = SwarmConfig(
                     num_agents=n_agents,
                     input_dim=self.base_input_dim,
@@ -576,24 +774,35 @@ class ScalingAnalyzer:
                     output_dim=self.base_output_dim,
                     message_dim=hidden_dim,
                     topology=TopologyType.SMALL_WORLD,
-                    num_perception=max(1, n_agents // 4),
-                    num_reasoning=max(1, n_agents // 4),
-                    num_memory=max(1, n_agents // 4),
-                    num_planning=max(1, n_agents - 3 * max(1, n_agents // 4)),
+                    num_perception=role_counts[0],
+                    num_reasoning=role_counts[1],
+                    num_memory=role_counts[2],
+                    num_planning=role_counts[3],
                 )
                 swarm = SwarmGraph(config, device=self.device)
+                set_swarm_eval(swarm)
 
                 # Evaluate performance
                 import time
                 start_time = time.time()
-                perf = self.evaluate_swarm(swarm, env_config, num_eval_episodes)
+                perf = self.evaluate_swarm(
+                    swarm,
+                    env_config,
+                    num_eval_episodes,
+                    evaluation_seed=seed,
+                )
                 compute_time = (time.time() - start_time) * 1000 / num_eval_episodes
+                seed_compute_times.append(compute_time)
 
                 seed_rewards.append(perf['mean_reward'])
 
-                # Quick emergence metrics
+                # Quick descriptive behavioral metrics
                 profiles = self.emergence_analyzer.collect_behavioral_data(
-                    swarm, env_config, num_episodes=10, steps_per_episode=50
+                    swarm,
+                    env_config,
+                    num_episodes=10,
+                    steps_per_episode=50,
+                    evaluation_seed=seed,
                 )
                 si = self.emergence_analyzer.compute_specialization_index(profiles)
                 bd = self.emergence_analyzer.compute_behavioral_diversity(profiles)
@@ -605,7 +814,10 @@ class ScalingAnalyzer:
 
             # Aggregate across seeds
             total_params = swarm.total_parameters
-            messages_per_step = n_agents * 3  # 3 message rounds, each agent sends 1
+            agent_forward_calls_per_step = (
+                len(swarm.input_agents)
+                + n_agents * swarm.config.message_passing_rounds
+            )
 
             data_point = ScalingDataPoint(
                 num_agents=n_agents,
@@ -614,27 +826,30 @@ class ScalingAnalyzer:
                 std_reward=np.std(seed_rewards),
                 specialization_index=np.mean(seed_sis),
                 behavioral_diversity=np.mean(seed_bds),
-                messages_per_step=messages_per_step,
-                compute_time_ms=compute_time,
-                synergy_score=0.0,  # Computed separately if needed
+                agent_forward_calls_per_step=agent_forward_calls_per_step,
+                compute_time_ms=np.mean(seed_compute_times),
             )
 
             data_points.append(data_point)
 
             logger.info(f"  Mean: reward={data_point.mean_reward:.2f}±{data_point.std_reward:.2f}")
-            logger.info(f"  Params: {total_params:,}, Messages/step: {messages_per_step}")
+            logger.info(
+                "  Params: %s, agent forward calls/step: %d",
+                f"{total_params:,}",
+                agent_forward_calls_per_step,
+            )
 
         return data_points
 
-    def detect_phase_transitions(
+    def flag_slope_changes(
         self,
         data_points: List[ScalingDataPoint],
         metrics: List[str] = ['mean_reward', 'specialization_index', 'behavioral_diversity'],
-    ) -> List[PhaseTransition]:
+    ) -> List[SlopeChangeFlag]:
         """
-        Detect phase transitions in scaling behavior.
+        Flag large local slope changes in scaling behavior.
 
-        A phase transition is where the slope of metric vs agents changes significantly.
+        This heuristic is descriptive and does not establish a phase transition.
         """
         transitions = []
 
@@ -669,13 +884,16 @@ class ScalingAnalyzer:
                 baseline_slope = abs(before_slope) + abs(after_slope) + 0.01
 
                 if slope_change / baseline_slope > 0.5:  # 50% relative change
-                    transitions.append(PhaseTransition(
+                    transitions.append(SlopeChangeFlag(
                         agent_count=int(agent_counts[i]),
                         metric_name=metric,
                         before_slope=float(before_slope),
                         after_slope=float(after_slope),
                         magnitude=float(slope_change),
-                        confidence=min(1.0, slope_change / baseline_slope),
+                        relative_change_score=min(
+                            1.0,
+                            slope_change / baseline_slope,
+                        ),
                     ))
 
         return transitions
@@ -687,7 +905,7 @@ class ScalingAnalyzer:
 
 def plot_scaling_results(
     data_points: List[ScalingDataPoint],
-    transitions: List[PhaseTransition],
+    transitions: List[SlopeChangeFlag],
     output_path: str,
 ):
     """Generate comprehensive scaling visualization."""
@@ -714,11 +932,11 @@ def plot_scaling_results(
     ax1.set_xscale('log')
     ax1.grid(True, alpha=0.3)
 
-    # Mark phase transitions
+    # Mark heuristic slope-change flags
     for t in transitions:
         if t.metric_name == 'mean_reward':
             ax1.axvline(t.agent_count, color='red', linestyle='--', alpha=0.7,
-                       label=f'Phase transition @ {t.agent_count}')
+                       label=f'Slope-change flag @ {t.agent_count}')
 
     # 2. Specialization vs Agents
     ax2 = fig.add_subplot(gs[0, 1])
@@ -729,36 +947,34 @@ def plot_scaling_results(
     ax2.plot(agents, bds, 'g-s', label='Behavioral Diversity', linewidth=2, markersize=8)
     ax2.set_xlabel('Number of Agents', fontsize=12)
     ax2.set_ylabel('Score', fontsize=12)
-    ax2.set_title('Emergence Metrics vs Scale', fontsize=14, fontweight='bold')
+    ax2.set_title('Behavioral Metrics vs Scale', fontsize=14, fontweight='bold')
     ax2.set_xscale('log')
     ax2.legend()
     ax2.grid(True, alpha=0.3)
 
-    # Mark phase transitions
+    # Mark heuristic slope-change flags
     for t in transitions:
         if t.metric_name in ['specialization_index', 'behavioral_diversity']:
             ax2.axvline(t.agent_count, color='red', linestyle='--', alpha=0.5)
 
-    # 3. Communication Overhead
+    # 3. Architectural work proxy
     ax3 = fig.add_subplot(gs[1, 0])
-    messages = [p.messages_per_step for p in data_points]
-    efficiency = [p.mean_reward / (p.messages_per_step + 1) for p in data_points]
-
-    ax3_twin = ax3.twinx()
-
-    line1 = ax3.plot(agents, messages, 'r-^', label='Messages/Step', linewidth=2, markersize=8)
-    line2 = ax3_twin.plot(agents, efficiency, 'b-o', label='Reward/Message', linewidth=2, markersize=8)
+    forward_calls = [p.agent_forward_calls_per_step for p in data_points]
+    ax3.plot(
+        agents,
+        forward_calls,
+        'r-^',
+        label='Agent forward calls/step',
+        linewidth=2,
+        markersize=8,
+    )
 
     ax3.set_xlabel('Number of Agents', fontsize=12)
-    ax3.set_ylabel('Messages per Step', color='red', fontsize=12)
-    ax3_twin.set_ylabel('Reward per Message', color='blue', fontsize=12)
-    ax3.set_title('Communication Overhead', fontsize=14, fontweight='bold')
+    ax3.set_ylabel('Agent forward calls per environment step', fontsize=12)
+    ax3.set_title('Architectural Work Proxy', fontsize=14, fontweight='bold')
     ax3.set_xscale('log')
     ax3.grid(True, alpha=0.3)
-
-    lines = line1 + line2
-    labels = [l.get_label() for l in lines]
-    ax3.legend(lines, labels, loc='upper left')
+    ax3.legend(loc='upper left')
 
     # 4. Compute Time
     ax4 = fig.add_subplot(gs[1, 1])
@@ -809,7 +1025,13 @@ def plot_role_clusters(
         X_2d = pca.fit_transform(X)
 
         colors = plt.cm.tab10(np.array(metrics.cluster_labels) - 1)
-        scatter = ax1.scatter(X_2d[:, 0], X_2d[:, 1], c=colors, s=100, edgecolors='black')
+        ax1.scatter(
+            X_2d[:, 0],
+            X_2d[:, 1],
+            c=colors,
+            s=100,
+            edgecolors='black',
+        )
 
         # Label points
         for i, p in enumerate(metrics.agent_profiles):
@@ -835,7 +1057,6 @@ def plot_role_clusters(
     ax2.set_title('Action Distribution Heatmap', fontsize=14, fontweight='bold')
 
     # Add cluster boundaries
-    cluster_boundaries = []
     for i in range(1, len(sorted_indices)):
         if metrics.cluster_labels[sorted_indices[i]] != metrics.cluster_labels[sorted_indices[i-1]]:
             ax2.axhline(i - 0.5, color='blue', linewidth=2)
@@ -853,125 +1074,236 @@ def plot_role_clusters(
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='SEESWM Emergence & Scaling Analysis')
+    parser = argparse.ArgumentParser(
+        description='SEESWM behavioral-pattern and random-init scaling diagnostics'
+    )
     parser.add_argument('--device', type=str, default='cpu')
-    parser.add_argument('--output', type=str, default='results/emergence')
-    parser.add_argument('--model', type=str, default=None, help='Path to trained model')
+    parser.add_argument('--seed', type=int, default=0, help='Candidate evaluation seed')
+    parser.add_argument(
+        '--episodes',
+        type=int,
+        default=None,
+        help='Candidate/control episodes (default: 20 quick, otherwise 50)',
+    )
+    parser.add_argument(
+        '--steps-per-episode',
+        type=int,
+        default=100,
+        help='Maximum candidate/control steps per episode',
+    )
+    parser.add_argument('--output', type=str, default='results/behavioral-local')
+    parser.add_argument(
+        '--model',
+        type=str,
+        default=None,
+        help='Path to a schema-v2 trained-policy checkpoint',
+    )
     parser.add_argument('--quick', action='store_true', help='Quick run with fewer samples')
     parser.add_argument('--scaling-only', action='store_true', help='Only run scaling analysis')
-    parser.add_argument('--emergence-only', action='store_true', help='Only run emergence analysis')
+    parser.add_argument(
+        '--behavior-only',
+        action='store_true',
+        help='Only run behavioral-pattern analysis',
+    )
+    parser.add_argument(
+        '--emergence-only',
+        dest='behavior_only',
+        action='store_true',
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
+
+    candidate_episodes = (
+        args.episodes if args.episodes is not None else (20 if args.quick else 50)
+    )
+    if args.seed < 0:
+        parser.error('--seed must be nonnegative')
+    if args.scaling_only and args.behavior_only:
+        parser.error('--scaling-only and --behavior-only are mutually exclusive')
+    if args.scaling_only and args.model:
+        parser.error('--model applies only to behavioral-pattern analysis')
+    if candidate_episodes <= 0 or args.steps_per_episode <= 0:
+        parser.error('--episodes and --steps-per-episode must be positive')
+
+    _seed_everything(args.seed)
+    analysis_source = _analysis_source_provenance()
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Configuration
-    swarm_config = {
-        'num_agents': 20,
-        'input_dim': 137,
-        'hidden_dim': 128,
-        'output_dim': 128,  # Match trained model
-    }
+    # Load the exact trained policy, or construct an explicitly random smoke
+    # test whose swarm output is already five-dimensional.
+    trained_checkpoint_loaded = False
+    policy_head = None
+    policy_head_spec = None
+    checkpoint_provenance = None
+    if args.model:
+        checkpoint_path = Path(args.model).expanduser().resolve(strict=True)
+        logger.info("Loading trained policy from %s", checkpoint_path)
+        loaded, checkpoint_digest = load_checkpoint_with_digest(checkpoint_path)
+        swarm, policy_head, env_config = build_candidate(loaded, args.device)
+        policy_head_spec = dict(loaded['policy_head'])
+        if policy_head_spec.get('type') == 'policy_head_tanh':
+            from src.swarm.specialized_graph import specialized_swarm_config_to_dict
 
-    env_config = {
-        'grid_size': 32,
-        'num_resources': 20,
-        'num_hazards': 10,
-        'vision_radius': 5,
-    }
+            swarm_config = specialized_swarm_config_to_dict(swarm.config)
+        else:
+            swarm_config = swarm_config_to_dict(swarm.config)
+        trained_checkpoint_loaded = True
+        checkpoint_provenance = {
+            'file': checkpoint_path.name,
+            'sha256': checkpoint_digest,
+            'schema_version': int(loaded['schema_version']),
+            'source_revision': loaded.get('source_revision'),
+            'source_dirty': loaded.get('source_dirty'),
+            'training_seed': loaded.get('seed'),
+            'dependency_versions': loaded.get('dependency_versions'),
+            'loaded_successfully': True,
+        }
+        logger.info("Loaded trained swarm and policy head")
+    else:
+        logger.info("No model specified; running a random-initialization smoke test")
+        num_agents = 20
+        config = SwarmConfig(
+            num_agents=num_agents,
+            input_dim=137,
+            hidden_dim=128,
+            output_dim=5,
+            message_dim=128,
+            topology=TopologyType.SMALL_WORLD,
+            num_perception=num_agents // 4,
+            num_reasoning=num_agents // 4,
+            num_memory=num_agents // 4,
+            num_planning=num_agents - 3 * (num_agents // 4),
+        )
+        swarm = SwarmGraph(config, device=args.device)
+        set_swarm_eval(swarm)
+        swarm_config = swarm_config_to_dict(config)
+        env_config = environment_config_to_dict(
+            EnvironmentConfig(
+                grid_size=32,
+                num_resources=20,
+                num_hazards=10,
+                vision_radius=5,
+            )
+        )
 
     results = {
-        'timestamp': datetime.now().isoformat(),
-        'config': {'swarm': swarm_config, 'env': env_config},
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'config': {
+            'swarm': swarm_config,
+            'env': env_config,
+            'device': args.device,
+        },
     }
 
-    # Load trained model if specified
-    if args.model:
-        logger.info(f"Loading trained model from {args.model}")
-        loaded = torch.load(args.model, map_location='cpu', weights_only=False)
-
-        # Create swarm and load weights
-        num_agents = swarm_config['num_agents']
-        config = SwarmConfig(
-            num_agents=num_agents,
-            input_dim=swarm_config['input_dim'],
-            hidden_dim=swarm_config['hidden_dim'],
-            output_dim=swarm_config['output_dim'],
-            message_dim=swarm_config['hidden_dim'],
-            topology=TopologyType.SMALL_WORLD,
-            num_perception=num_agents // 4,
-            num_reasoning=num_agents // 4,
-            num_memory=num_agents // 4,
-            num_planning=num_agents - 3 * (num_agents // 4),
-        )
-        swarm = SwarmGraph(config, device=args.device)
-
-        if 'swarm_state' in loaded:
-            swarm.load_state_dict(loaded['swarm_state'])
-            logger.info("Loaded trained weights")
-    else:
-        # Create random swarm for testing
-        logger.info("No model specified, using random initialization")
-        num_agents = swarm_config['num_agents']
-        config = SwarmConfig(
-            num_agents=num_agents,
-            input_dim=swarm_config['input_dim'],
-            hidden_dim=swarm_config['hidden_dim'],
-            output_dim=swarm_config['output_dim'],
-            message_dim=swarm_config['hidden_dim'],
-            topology=TopologyType.SMALL_WORLD,
-            num_perception=num_agents // 4,
-            num_reasoning=num_agents // 4,
-            num_memory=num_agents // 4,
-            num_planning=num_agents - 3 * (num_agents // 4),
-        )
-        swarm = SwarmGraph(config, device=args.device)
+    results['provenance'] = {
+        'behavioral_analysis': {
+            'initialization': (
+                'trained_checkpoint' if trained_checkpoint_loaded else 'fresh_random'
+            ),
+            'checkpoint': checkpoint_provenance,
+            'candidate_seed': int(args.seed),
+            'random_control_seeds': (
+                []
+                if args.quick or args.scaling_only
+                else _random_control_seeds(args.seed, 30)
+            ),
+            'episodes_per_candidate_and_control': int(candidate_episodes),
+            'steps_per_episode': int(args.steps_per_episode),
+            'random_control_count': 0 if args.quick or args.scaling_only else 30,
+        },
+        'scaling_analysis': {
+            'initialization': 'fresh_random',
+            'note': 'Scaling never reuses the candidate checkpoint.',
+        },
+        'quick_mode': args.quick,
+        'analysis_source': analysis_source,
+        'analysis_runtime': {
+            'python': sys.version.split()[0],
+            'torch': str(torch.__version__),
+            'numpy': str(np.__version__),
+        },
+    }
 
     # =================
-    # EMERGENCE ANALYSIS
+    # BEHAVIORAL-PATTERN ANALYSIS
     # =================
     if not args.scaling_only:
         logger.info("\n" + "=" * 60)
-        logger.info("EMERGENCE ANALYSIS")
+        logger.info("BEHAVIORAL-PATTERN ANALYSIS")
         logger.info("=" * 60)
 
-        analyzer = EmergenceAnalyzer(device=args.device, num_actions=min(5, swarm_config['output_dim']))
+        analyzer = EmergenceAnalyzer(
+            device=args.device,
+            num_actions=5,
+            policy_head=policy_head,
+            policy_head_spec=policy_head_spec,
+            candidate_seed=args.seed,
+        )
+
+        # Re-seed because checkpoint/environment reconstruction may consume RNG.
+        _seed_everything(args.seed)
 
         metrics = analyzer.analyze_full(
             swarm, swarm_config, env_config,
-            num_episodes=20 if args.quick else 50,
+            num_episodes=candidate_episodes,
+            steps_per_episode=args.steps_per_episode,
             run_null_test=not args.quick,
         )
 
-        results['emergence'] = {
+        results['behavioral_patterns'] = {
             'specialization_index': metrics.specialization_index,
             'role_consistency': metrics.role_consistency,
             'behavioral_diversity': metrics.behavioral_diversity,
-            'null_hypothesis_si': metrics.null_hypothesis_si,
-            'p_value': metrics.p_value,
-            'effect_size': metrics.effect_size,
+            'random_control_si': metrics.random_control_si,
+            'monte_carlo_p_value': metrics.monte_carlo_p_value,
+            'standardized_null_difference': metrics.standardized_null_difference,
+            'null_sample_count': metrics.null_sample_count,
+            'random_comparison_performed': metrics.random_comparison_performed,
             'num_distinct_roles': metrics.num_distinct_roles,
             'cluster_sizes': metrics.cluster_sizes,
         }
 
         # Summary
         logger.info("\n" + "-" * 40)
-        logger.info("EMERGENCE SUMMARY")
+        logger.info("BEHAVIORAL-PATTERN SUMMARY")
         logger.info("-" * 40)
         logger.info(f"Specialization Index: {metrics.specialization_index:.4f}")
-        logger.info(f"  vs Null Baseline: {metrics.null_hypothesis_si:.4f}")
-        logger.info(f"  P-value: {metrics.p_value:.4f}")
-        logger.info(f"  Effect size: {metrics.effect_size:.2f} (Cohen's d)")
+        if metrics.random_comparison_performed:
+            logger.info(f"  vs Random Controls: {metrics.random_control_si:.4f}")
+            logger.info(
+                "  Plus-one Monte Carlo p: %.4f (n=%d random controls)",
+                metrics.monte_carlo_p_value,
+                metrics.null_sample_count,
+            )
+            if metrics.standardized_null_difference is None:
+                logger.info("  Standardized null difference: undefined (zero null SD)")
+            else:
+                logger.info(
+                    "  Standardized null difference: %.2f",
+                    metrics.standardized_null_difference,
+                )
+        else:
+            logger.info("  Fresh-random comparison: skipped")
         logger.info(f"Number of distinct roles: {metrics.num_distinct_roles}")
         logger.info(f"Role sizes: {metrics.cluster_sizes}")
 
         # Interpretation
-        if metrics.p_value < 0.05 and metrics.effect_size > 0.5:
-            logger.info("\n*** GENUINE SPECIALIZATION DETECTED ***")
-            logger.info("The trained swarm shows significantly more specialization")
-            logger.info("than random baseline (p < 0.05, effect size > 0.5)")
+        if not metrics.random_comparison_performed:
+            logger.info("\nRandom-init comparison skipped; no comparative conclusion")
+        elif (
+            trained_checkpoint_loaded
+            and metrics.monte_carlo_p_value is not None
+            and metrics.monte_carlo_p_value < 0.05
+        ):
+            logger.info("\nCandidate differs from the fresh-random comparison")
+            logger.info("under this 30-control exploratory comparison (p < 0.05)")
+            logger.info("This is not evidence of emergence without trained controls")
+        elif not trained_checkpoint_loaded:
+            logger.info("\nRandom-initialization smoke test only; no learned specialization claim")
         else:
-            logger.info("\nSpecialization not significantly different from random")
+            logger.info("\nCandidate SI was not unusual in this random-init comparison")
 
         # Plot clusters
         plot_role_clusters(metrics, str(output_dir / 'role_clusters.png'))
@@ -979,50 +1311,66 @@ def main():
     # =================
     # SCALING ANALYSIS
     # =================
-    if not args.emergence_only:
+    if not args.behavior_only:
         logger.info("\n" + "=" * 60)
         logger.info("SCALING ANALYSIS")
         logger.info("=" * 60)
 
         scaling_analyzer = ScalingAnalyzer(
             device=args.device,
+            base_input_dim=int(swarm_config['input_dim']),
             base_output_dim=5,  # Use 5 actions for scaling tests (fresh swarms)
         )
 
         if args.quick:
             agent_counts = [4, 10, 20, 50]
             num_seeds = 2
+            scaling_eval_episodes = 10
         else:
             agent_counts = [4, 10, 20, 50, 100, 150]
             num_seeds = 3
+            scaling_eval_episodes = 20
+
+        results['provenance']['scaling_analysis'].update({
+            'seeds': list(range(num_seeds)),
+            'evaluation_episodes_per_seed': scaling_eval_episodes,
+            'evaluation_steps_per_episode': 100,
+            'behavioral_episodes_per_seed': 10,
+            'behavioral_steps_per_episode': 50,
+            'agent_counts': agent_counts,
+        })
 
         data_points = scaling_analyzer.run_scaling_sweep(
             agent_counts=agent_counts,
             env_config=env_config,
             num_seeds=num_seeds,
-            num_eval_episodes=10 if args.quick else 20,
+            num_eval_episodes=scaling_eval_episodes,
         )
 
-        transitions = scaling_analyzer.detect_phase_transitions(data_points)
+        transitions = scaling_analyzer.flag_slope_changes(data_points)
 
         results['scaling'] = {
+            'seeds': list(range(num_seeds)),
             'data_points': [
                 {
-                    'num_agents': p.num_agents,
-                    'mean_reward': p.mean_reward,
-                    'std_reward': p.std_reward,
-                    'specialization_index': p.specialization_index,
-                    'behavioral_diversity': p.behavioral_diversity,
-                    'messages_per_step': p.messages_per_step,
-                    'total_params': p.total_params,
+                    'num_agents': int(p.num_agents),
+                    'mean_reward': float(p.mean_reward),
+                    'std_reward': float(p.std_reward),
+                    'specialization_index': float(p.specialization_index),
+                    'behavioral_diversity': float(p.behavioral_diversity),
+                    'agent_forward_calls_per_step': int(
+                        p.agent_forward_calls_per_step
+                    ),
+                    'compute_time_ms': float(p.compute_time_ms),
+                    'total_params': int(p.total_params),
                 }
                 for p in data_points
             ],
-            'phase_transitions': [
+            'slope_change_flags': [
                 {
-                    'agent_count': t.agent_count,
+                    'agent_count': int(t.agent_count),
                     'metric': t.metric_name,
-                    'magnitude': t.magnitude,
+                    'magnitude': float(t.magnitude),
                 }
                 for t in transitions
             ],
@@ -1033,13 +1381,13 @@ def main():
         logger.info("SCALING SUMMARY")
         logger.info("-" * 40)
 
-        # Check for phase transitions
+        # Report heuristic slope-change flags
         if transitions:
-            logger.info(f"Detected {len(transitions)} phase transition(s):")
+            logger.info(f"Flagged {len(transitions)} local slope change(s):")
             for t in transitions:
                 logger.info(f"  {t.metric_name} @ {t.agent_count} agents (magnitude: {t.magnitude:.3f})")
         else:
-            logger.info("No significant phase transitions detected")
+            logger.info("No large local slope changes flagged")
 
         # Scaling trend
         rewards = [p.mean_reward for p in data_points]
@@ -1047,21 +1395,21 @@ def main():
 
         # Fit log-linear trend
         log_agents = np.log(agents)
-        slope, intercept, r_value, _, _ = stats.linregress(log_agents, rewards)
+        slope, _, r_value, _, _ = stats.linregress(log_agents, rewards)
 
         logger.info(f"\nScaling trend: reward ~ {slope:.3f} * log(agents)")
         logger.info(f"R² = {r_value**2:.3f}")
 
-        if slope > 0:
-            logger.info("Performance INCREASES with scale (good!)")
-        else:
-            logger.info("Performance DECREASES with scale (coordination breaking down?)")
+        logger.info(
+            "Observed reward trend direction: %s",
+            "positive" if slope > 0 else "non-positive",
+        )
 
         # Plot
         plot_scaling_results(data_points, transitions, str(output_dir / 'scaling_analysis.png'))
 
     # Save results
-    output_file = output_dir / 'emergence_scaling_results.json'
+    output_file = output_dir / 'behavioral_scaling_results.json'
     with open(output_file, 'w') as f:
         json.dump(results, f, indent=2)
 

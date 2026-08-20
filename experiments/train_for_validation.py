@@ -14,11 +14,85 @@ import torch.optim as optim
 import numpy as np
 from collections import deque
 import argparse
-import json
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError, version as package_version
+import platform
+import random
+import subprocess
 
-from src.swarm.graph import SwarmGraph, SwarmConfig, TopologyType
+from src.swarm.graph import (
+    SWARM_STATE_SCHEMA_VERSION,
+    SwarmGraph,
+    SwarmConfig,
+    TopologyType,
+    swarm_config_to_dict,
+)
 from src.environment.cosmos import CosmosEnvironment
+
+
+def _source_revision() -> str | None:
+    """Read the local Git revision without making checkpointing depend on Git."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parent.parent,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    revision = result.stdout.strip()
+    return revision if result.returncode == 0 and revision else None
+
+
+def _source_dirty() -> bool | None:
+    """Report tracked or untracked worktree changes, or None without Git."""
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=Path(__file__).resolve().parent.parent,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return bool(result.stdout.strip()) if result.returncode == 0 else None
+
+
+def _dependency_versions() -> dict[str, str | None]:
+    versions: dict[str, str | None] = {"python": platform.python_version()}
+    for distribution in ("torch", "numpy", "networkx"):
+        try:
+            versions[distribution] = str(package_version(distribution))
+        except PackageNotFoundError:
+            versions[distribution] = None
+    return versions
+
+
+def _environment_config_to_dict(env: CosmosEnvironment) -> dict:
+    config = env.config
+    return {
+        "grid_size": int(config.grid_size),
+        "num_resources": int(config.num_resources),
+        "num_hazards": int(config.num_hazards),
+        "num_agents": int(config.num_agents),
+        "vision_radius": int(config.vision_radius),
+        "enable_respawn": bool(config.enable_respawn),
+        "respawn_delay": int(config.respawn_delay),
+        "num_food": int(config.num_food),
+        "num_water": int(config.num_water),
+        "num_material": int(config.num_material),
+        "hunger_rate": float(config.hunger_rate),
+        "thirst_rate": float(config.thirst_rate),
+        "starvation_threshold": float(config.starvation_threshold),
+        "movement_cost": float(config.movement_cost),
+        "stay_cost": float(config.stay_cost),
+        "max_steps": int(config.max_steps),
+    }
 
 
 class PolicyGradientTrainer:
@@ -172,8 +246,20 @@ def train_swarm(
     device: str = "cpu",
     save_path: str = None,
     verbose: bool = True,
+    seed: int = 42,
 ):
     """Train swarm and return trained model."""
+
+    if num_epochs < 1 or num_agents < 1 or hidden_dim < 1:
+        raise ValueError("epochs, agents, and hidden dimension must be positive")
+    if lr <= 0 or not np.isfinite(lr):
+        raise ValueError("learning rate must be finite and positive")
+    if seed < 0:
+        raise ValueError("seed must be non-negative")
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
     # Create swarm
     swarm_config = SwarmConfig(
@@ -183,6 +269,7 @@ def train_swarm(
         output_dim=hidden_dim,  # Will project to actions
         message_dim=hidden_dim,
         topology=TopologyType.SMALL_WORLD,
+        small_world_k=min(4, num_agents),
         num_perception=num_agents // 4,
         num_reasoning=num_agents // 4,
         num_memory=num_agents // 4,
@@ -213,6 +300,7 @@ def train_swarm(
     # Training loop
     reward_history = deque(maxlen=100)
     best_avg_reward = float('-inf')
+    avg_reward = 0.0
 
     if verbose:
         print(f"\nTraining for {num_epochs} epochs...")
@@ -239,19 +327,49 @@ def train_swarm(
 
     # Save model
     if save_path:
+        save_file = Path(save_path).expanduser()
+        save_file.parent.mkdir(parents=True, exist_ok=True)
         save_data = {
-            'swarm_config': swarm_config.__dict__,
+            'schema_version': SWARM_STATE_SCHEMA_VERSION,
+            'checkpoint_type': 'training',
+            'swarm_config': swarm_config_to_dict(swarm_config),
             'swarm_state': swarm.state_dict(),
-            'action_head_state': trainer.action_head.state_dict(),
+            'policy_head': {
+                'type': 'mlp_relu',
+                'input_dim': int(swarm_config.output_dim),
+                'hidden_dim': 64,
+                'num_actions': 5,
+                'state_dict': dict(trainer.action_head.state_dict()),
+            },
+            'value_head': {
+                'type': 'mlp_relu',
+                'input_dim': int(swarm_config.output_dim),
+                'hidden_dim': 64,
+                'state_dict': dict(trainer.value_head.state_dict()),
+            },
+            'environment_config': _environment_config_to_dict(env),
+            'training_config': {
+                'algorithm': 'reinforce_with_baseline',
+                'num_epochs': int(num_epochs),
+                'learning_rate': float(lr),
+                'gamma': float(trainer.gamma),
+                'entropy_coef': float(trainer.entropy_coef),
+                'max_episode_steps': 200,
+                'device': str(device),
+            },
             'training_metrics': {
-                'final_avg_reward': avg_reward,
-                'best_avg_reward': best_avg_reward,
-                'num_epochs': num_epochs,
-            }
+                'final_avg_reward': float(avg_reward),
+                'best_avg_reward': float(best_avg_reward),
+                'num_epochs': int(num_epochs),
+            },
+            'seed': int(seed),
+            'source_revision': _source_revision(),
+            'source_dirty': _source_dirty(),
+            'dependency_versions': _dependency_versions(),
         }
-        torch.save(save_data, save_path)
+        torch.save(save_data, save_file)
         if verbose:
-            print(f"Saved trained model to {save_path}")
+            print(f"Saved trained model to {save_file}")
 
     return swarm, trainer.action_head, avg_reward
 
@@ -264,6 +382,7 @@ def main():
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument("--device", type=str, default="cpu", help="Device")
     parser.add_argument("--save", type=str, default=None, help="Save path")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--validate", action="store_true", help="Run validation after training")
     args = parser.parse_args()
 
@@ -282,6 +401,7 @@ def main():
         device=args.device,
         save_path=args.save,
         verbose=True,
+        seed=args.seed,
     )
 
     # Optionally run validation
@@ -290,10 +410,20 @@ def main():
         print("RUNNING VALIDATION")
         print("=" * 60)
 
-        import subprocess
-        result = subprocess.run(
-            ["python", "experiments/validate_rigorously.py", "--mode", "quick"],
-            capture_output=False,
+        subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).with_name("validate_rigorously.py")),
+                "--model",
+                str(args.save),
+                "--device",
+                args.device,
+                "--seeds",
+                "3",
+                "--episodes",
+                "3",
+            ],
+            check=True,
         )
 
 

@@ -8,13 +8,14 @@ outputs for the swarm.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import math
+from collections.abc import Mapping
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class AgentType(Enum):
@@ -50,6 +51,148 @@ class AgentConfig:
     use_residual: bool = True
     dropout: float = 0.1
     state_dim: int = 32  # Local state dimension
+
+
+AGENT_STATE_SCHEMA_VERSION = 2
+
+_AGENT_CONFIG_KEYS = {
+    "agent_type",
+    "input_dim",
+    "hidden_dim",
+    "output_dim",
+    "message_dim",
+    "num_layers",
+    "use_residual",
+    "dropout",
+    "state_dim",
+}
+_PLASTICITY_KEYS = {
+    "base_lr",
+    "dopamine_multiplier",
+    "curiosity_bias",
+    "fear_dampening",
+}
+
+
+def _require_exact_keys(
+    value: Mapping,
+    expected: set[str],
+    context: str,
+) -> None:
+    actual = set(value.keys())
+    if actual != expected:
+        missing = sorted(expected - actual)
+        extra = sorted((repr(key) for key in actual - expected))
+        raise ValueError(
+            f"Invalid {context} keys; missing={missing}, extra={extra}"
+        )
+
+
+def _require_int(value: object, context: str) -> int:
+    if type(value) is not int:
+        raise TypeError(f"{context} must be a native int")
+    return value
+
+
+def _require_float(value: object, context: str) -> float:
+    if type(value) not in (int, float):
+        raise TypeError(f"{context} must be a native int or float")
+    return float(value)
+
+
+def _agent_config_to_dict(config: AgentConfig) -> dict:
+    """Convert an agent configuration to weights-only-safe primitives."""
+    return {
+        "agent_type": config.agent_type.name,
+        "input_dim": int(config.input_dim),
+        "hidden_dim": int(config.hidden_dim),
+        "output_dim": int(config.output_dim),
+        "message_dim": int(config.message_dim),
+        "num_layers": int(config.num_layers),
+        "use_residual": bool(config.use_residual),
+        "dropout": float(config.dropout),
+        "state_dim": int(config.state_dim),
+    }
+
+
+def _agent_config_from_dict(data: object) -> AgentConfig:
+    """Reconstruct an AgentConfig from a strict primitive mapping."""
+    if not isinstance(data, Mapping):
+        raise TypeError("agent config must be a mapping")
+    _require_exact_keys(data, _AGENT_CONFIG_KEYS, "agent config")
+
+    agent_type_name = data["agent_type"]
+    if type(agent_type_name) is not str:
+        raise TypeError("agent config agent_type must be an enum name string")
+    try:
+        agent_type = AgentType[agent_type_name]
+    except KeyError as exc:
+        raise ValueError(f"Unknown agent type name: {agent_type_name!r}") from exc
+
+    use_residual = data["use_residual"]
+    if type(use_residual) is not bool:
+        raise TypeError("agent config use_residual must be a native bool")
+
+    return AgentConfig(
+        agent_type=agent_type,
+        input_dim=_require_int(data["input_dim"], "agent config input_dim"),
+        hidden_dim=_require_int(data["hidden_dim"], "agent config hidden_dim"),
+        output_dim=_require_int(data["output_dim"], "agent config output_dim"),
+        message_dim=_require_int(data["message_dim"], "agent config message_dim"),
+        num_layers=_require_int(data["num_layers"], "agent config num_layers"),
+        use_residual=use_residual,
+        dropout=_require_float(data["dropout"], "agent config dropout"),
+        state_dim=_require_int(data["state_dim"], "agent config state_dim"),
+    )
+
+
+def _plasticity_to_dict(plasticity: PlasticityParams) -> dict:
+    return {
+        "base_lr": float(plasticity.base_lr),
+        "dopamine_multiplier": float(plasticity.dopamine_multiplier),
+        "curiosity_bias": float(plasticity.curiosity_bias),
+        "fear_dampening": float(plasticity.fear_dampening),
+    }
+
+
+def _plasticity_from_dict(data: object) -> PlasticityParams:
+    if not isinstance(data, Mapping):
+        raise TypeError("agent plasticity must be a mapping")
+    _require_exact_keys(data, _PLASTICITY_KEYS, "agent plasticity")
+    plasticity = PlasticityParams(
+        base_lr=_require_float(data["base_lr"], "plasticity base_lr"),
+        dopamine_multiplier=_require_float(
+            data["dopamine_multiplier"], "plasticity dopamine_multiplier"
+        ),
+        curiosity_bias=_require_float(
+            data["curiosity_bias"], "plasticity curiosity_bias"
+        ),
+        fear_dampening=_require_float(
+            data["fear_dampening"], "plasticity fear_dampening"
+        ),
+    )
+    values = (
+        plasticity.base_lr,
+        plasticity.dopamine_multiplier,
+        plasticity.curiosity_bias,
+        plasticity.fear_dampening,
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("agent plasticity values must be finite")
+    return plasticity
+
+
+def _tensor_state_dict(data: object, context: str) -> dict[str, torch.Tensor]:
+    if not isinstance(data, Mapping):
+        raise TypeError(f"{context} must be a mapping")
+    result: dict[str, torch.Tensor] = {}
+    for key, value in data.items():
+        if type(key) is not str:
+            raise TypeError(f"{context} keys must be native strings")
+        if not isinstance(value, torch.Tensor):
+            raise TypeError(f"{context}[{key!r}] must be a tensor")
+        result[key] = value
+    return result
 
 
 class AgentNetwork(nn.Module):
@@ -288,17 +431,55 @@ class MicroAgent:
         }
 
     def state_dict(self) -> dict:
-        """Get state for saving."""
+        """Get a versioned, weights-only-safe persistent state."""
         return {
-            "network": self.network.state_dict(),
-            "config": self.config,
-            "plasticity": self.plasticity,
-            "local_state": self.local_state,
+            "schema_version": AGENT_STATE_SCHEMA_VERSION,
+            "agent_id": int(self.agent_id),
+            "config": _agent_config_to_dict(self.config),
+            "network": dict(self.network.state_dict()),
+            "plasticity": _plasticity_to_dict(self.plasticity),
         }
 
     def load_state_dict(self, state: dict) -> None:
-        """Load saved state."""
-        self.network.load_state_dict(state["network"])
-        self.config = state["config"]
-        self.plasticity = state["plasticity"]
-        self.local_state = state["local_state"]
+        """Strictly load persistent state and reset runtime-only state."""
+        if not isinstance(state, Mapping):
+            raise TypeError("agent state must be a mapping")
+        _require_exact_keys(
+            state,
+            {"schema_version", "agent_id", "config", "network", "plasticity"},
+            "agent state",
+        )
+
+        schema_version = _require_int(
+            state["schema_version"], "agent state schema_version"
+        )
+        if schema_version != AGENT_STATE_SCHEMA_VERSION:
+            raise ValueError(
+                f"Unsupported agent state schema_version {schema_version}; "
+                f"expected {AGENT_STATE_SCHEMA_VERSION}"
+            )
+
+        agent_id = _require_int(state["agent_id"], "agent state agent_id")
+        if agent_id != self.agent_id:
+            raise ValueError(
+                f"Agent ID mismatch: checkpoint has {agent_id}, instance has {self.agent_id}"
+            )
+
+        saved_config = _agent_config_from_dict(state["config"])
+        if saved_config != self.config:
+            raise ValueError(
+                f"Agent config mismatch for agent {self.agent_id}: "
+                f"checkpoint={saved_config!r}, instance={self.config!r}"
+            )
+
+        network_state = _tensor_state_dict(state["network"], "agent network state")
+        plasticity = _plasticity_from_dict(state["plasticity"])
+        self.network.load_state_dict(network_state, strict=True)
+        self.plasticity = plasticity
+
+        # Recurrent activations and monitoring outputs are episode-local, not model state.
+        self.local_state = None
+        self._batch_size = None
+        self.last_output = None
+        self.activation_count = 0
+        self.total_output_magnitude = 0.0

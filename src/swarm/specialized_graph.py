@@ -4,32 +4,40 @@ SpecializedSwarmGraph - Swarm with specialized agents and typed messaging.
 Combines:
 - Specialized agent architectures (Perception, Reasoning, Memory, Planning)
 - Typed message passing with semantic routing
-- Role emergence tracking
+- Descriptive role-pattern tracking
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Dict, List, Tuple
+import math
 import random
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 import networkx as nx
 import torch
-import torch.nn as nn
 
 from ..agents.micro_agent import AgentConfig, AgentType
 from ..agents.specializations import (
     SpecializedAgent,
-    PerceptionNetwork,
-    ReasoningNetwork,
-    MemoryNetwork,
-    PlanningNetwork,
 )
-from .graph import SwarmConfig, TopologyType
+from .graph import (
+    SWARM_STATE_SCHEMA_VERSION,
+    SwarmConfig,
+    TopologyType,
+    _graph_edges_to_list,
+    _require_exact_keys,
+    _require_float,
+    _require_int,
+    _validate_exact_int_ids,
+    _validate_graph_edges,
+    _validate_tensor_state_dict,
+    swarm_config_from_dict,
+    swarm_config_to_dict,
+)
 from .typed_messaging import (
     TypedMessageBus,
     MessageType,
-    TypedMessage,
     MessageEncoder,
     TypeAwareAggregator,
     AGENT_MESSAGE_TYPES,
@@ -53,6 +61,88 @@ class SpecializedSwarmConfig(SwarmConfig):
     specialization_bonus: float = 0.1  # Bonus for using specialized capabilities
 
 
+_SPECIALIZED_CONFIG_KEYS = set(swarm_config_to_dict(SwarmConfig())) | {
+    "use_typed_messaging",
+    "encode_message_types",
+    "track_role_emergence",
+    "specialization_bonus",
+}
+
+
+def specialized_swarm_config_to_dict(config: SpecializedSwarmConfig) -> dict:
+    """Convert a specialized swarm config to weights-only-safe primitives."""
+    if not isinstance(config, SpecializedSwarmConfig):
+        raise TypeError("config must be a SpecializedSwarmConfig")
+    for name in (
+        "use_typed_messaging",
+        "encode_message_types",
+        "track_role_emergence",
+    ):
+        if type(getattr(config, name)) is not bool:
+            raise TypeError(f"specialized swarm config {name} must be a native bool")
+    if not math.isfinite(config.specialization_bonus) or config.specialization_bonus < 0:
+        raise ValueError("specialization_bonus must be a finite non-negative number")
+    result = swarm_config_to_dict(config)
+    result.update(
+        {
+            "use_typed_messaging": bool(config.use_typed_messaging),
+            "encode_message_types": bool(config.encode_message_types),
+            "track_role_emergence": bool(config.track_role_emergence),
+            "specialization_bonus": float(config.specialization_bonus),
+        }
+    )
+    return result
+
+
+def specialized_swarm_config_from_dict(data: object) -> SpecializedSwarmConfig:
+    """Strictly reconstruct a specialized config from native primitives."""
+    if not isinstance(data, dict):
+        raise TypeError("specialized swarm config must be a native dict")
+    _require_exact_keys(data, _SPECIALIZED_CONFIG_KEYS, "specialized swarm config")
+
+    base_keys = set(swarm_config_to_dict(SwarmConfig()))
+    base = swarm_config_from_dict({key: data[key] for key in base_keys})
+
+    bool_values = {}
+    for key in (
+        "use_typed_messaging",
+        "encode_message_types",
+        "track_role_emergence",
+    ):
+        value = data[key]
+        if type(value) is not bool:
+            raise TypeError(f"specialized swarm config {key} must be a native bool")
+        bool_values[key] = value
+
+    config = SpecializedSwarmConfig(
+        num_agents=base.num_agents,
+        topology=base.topology,
+        message_passing_rounds=base.message_passing_rounds,
+        input_dim=base.input_dim,
+        hidden_dim=base.hidden_dim,
+        output_dim=base.output_dim,
+        message_dim=base.message_dim,
+        random_edge_prob=base.random_edge_prob,
+        small_world_k=base.small_world_k,
+        small_world_p=base.small_world_p,
+        scale_free_m=base.scale_free_m,
+        num_perception=base.num_perception,
+        num_reasoning=base.num_reasoning,
+        num_memory=base.num_memory,
+        num_planning=base.num_planning,
+        use_typed_messaging=bool_values["use_typed_messaging"],
+        encode_message_types=bool_values["encode_message_types"],
+        track_role_emergence=bool_values["track_role_emergence"],
+        specialization_bonus=_require_float(
+            data["specialization_bonus"],
+            "specialized swarm config specialization_bonus",
+        ),
+    )
+    if not math.isfinite(config.specialization_bonus) or config.specialization_bonus < 0:
+        raise ValueError("specialization_bonus must be a finite non-negative number")
+    return config
+
+
 class SpecializedSwarmGraph:
     """
     Swarm with specialized agent architectures and typed messaging.
@@ -60,7 +150,7 @@ class SpecializedSwarmGraph:
     Key features:
     - Each agent type has distinct architectural biases
     - Messages carry semantic type information
-    - Role emergence metrics track specialization development
+    - Role-pattern metrics summarize observed message distributions
     """
 
     def __init__(
@@ -165,8 +255,9 @@ class SpecializedSwarmGraph:
             node_id += size
 
         # Sparse inter-cluster connections
-        for i, cluster1 in enumerate(cluster_nodes):
-            for cluster2 in cluster_nodes[i + 1:]:
+        nonempty_clusters = [cluster for cluster in cluster_nodes if cluster]
+        for i, cluster1 in enumerate(nonempty_clusters):
+            for cluster2 in nonempty_clusters[i + 1:]:
                 num_bridges = max(1, len(cluster1) // 5)
                 for _ in range(num_bridges):
                     n1 = random.choice(cluster1)
@@ -245,11 +336,13 @@ class SpecializedSwarmGraph:
                 output_dim=self.config.output_dim,
                 message_dim=self.config.message_dim,
             )
-            self.agents[agent_id] = SpecializedAgent(
+            agent = SpecializedAgent(
                 agent_id=agent_id,
                 config=agent_config,
                 device=self.device,
             )
+            agent.last_output = None
+            self.agents[agent_id] = agent
 
     def _register_agents_with_bus(self) -> None:
         """Register agents with the typed message bus."""
@@ -320,6 +413,7 @@ class SpecializedSwarmGraph:
                 global_input, neighbor_msg, agent.local_state
             )
             agent.local_state = new_state
+            agent.last_output = output.detach()
             current_outputs[agent_id] = output
 
             # Send typed message
@@ -364,6 +458,7 @@ class SpecializedSwarmGraph:
                     agent_input, msg_agg, agent.local_state
                 )
                 agent.local_state = new_state
+                agent.last_output = output.detach()
                 new_outputs[agent_id] = output
 
                 # Send output as typed message
@@ -410,7 +505,7 @@ class SpecializedSwarmGraph:
         return self.message_bus.get_stats()
 
     def get_role_emergence_metrics(self) -> Dict:
-        """Get role emergence metrics."""
+        """Get descriptive role-pattern metrics (legacy API name)."""
         if hasattr(self, 'role_metrics'):
             return self.role_metrics.get_metrics()
         return {}
@@ -444,28 +539,114 @@ class SpecializedSwarmGraph:
         return params
 
     def state_dict(self) -> Dict:
-        """Get state for saving."""
+        """Get a versioned, weights-only-safe persistent state."""
+        expected_ids = set(range(self.config.num_agents))
+        _validate_exact_int_ids(self.agents, expected_ids, "specialized swarm agents")
+        _validate_exact_int_ids(
+            self.aggregators,
+            expected_ids,
+            "specialized swarm aggregators",
+        )
         return {
-            "config": self.config,
-            "agents": {i: a.network.state_dict() for i, a in self.agents.items()},
-            "aggregators": {i: a.state_dict() for i, a in self.aggregators.items()},
-            "graph_edges": list(self.graph.edges()),
-            "message_encoder": self.message_encoder.state_dict() if self.message_encoder else None,
+            "schema_version": SWARM_STATE_SCHEMA_VERSION,
+            "config": specialized_swarm_config_to_dict(self.config),
+            "agents": {i: a.state_dict() for i, a in self.agents.items()},
+            "aggregators": {
+                i: dict(aggregator.state_dict())
+                for i, aggregator in self.aggregators.items()
+            },
+            "graph_edges": _graph_edges_to_list(
+                self.graph, self.config.num_agents
+            ),
+            "message_encoder": (
+                dict(self.message_encoder.state_dict())
+                if self.message_encoder is not None
+                else None
+            ),
         }
 
     def load_state_dict(self, state: Dict) -> None:
-        """Load saved state."""
-        for i, agent_state in state["agents"].items():
-            self.agents[int(i)].network.load_state_dict(agent_state)
-        for i, agg_state in state["aggregators"].items():
-            self.aggregators[int(i)].load_state_dict(agg_state)
-        if state["message_encoder"] and self.message_encoder:
-            self.message_encoder.load_state_dict(state["message_encoder"])
+        """Strictly load a schema-v2 state into a matching specialized swarm."""
+        if not isinstance(state, dict):
+            raise TypeError("specialized swarm state must be a native dict")
+        _require_exact_keys(
+            state,
+            {
+                "schema_version",
+                "config",
+                "agents",
+                "aggregators",
+                "graph_edges",
+                "message_encoder",
+            },
+            "specialized swarm state",
+        )
+
+        schema_version = _require_int(
+            state["schema_version"], "specialized swarm state schema_version"
+        )
+        if schema_version != SWARM_STATE_SCHEMA_VERSION:
+            raise ValueError(
+                f"Unsupported specialized swarm state schema_version {schema_version}; "
+                f"expected {SWARM_STATE_SCHEMA_VERSION}"
+            )
+
+        saved_config = specialized_swarm_config_from_dict(state["config"])
+        if saved_config != self.config:
+            raise ValueError(
+                f"Specialized swarm config mismatch: checkpoint={saved_config!r}, "
+                f"instance={self.config!r}"
+            )
+
+        expected_ids = set(self.agents.keys())
+        agent_states = _validate_exact_int_ids(
+            state["agents"], expected_ids, "specialized swarm agent states"
+        )
+        aggregator_states = _validate_exact_int_ids(
+            state["aggregators"], expected_ids, "specialized swarm aggregator states"
+        )
+        validated_aggregators = {
+            agent_id: _validate_tensor_state_dict(
+                aggregator_states[agent_id],
+                f"aggregator {agent_id} state",
+            )
+            for agent_id in expected_ids
+        }
+        edges = _validate_graph_edges(state["graph_edges"], self.config.num_agents)
+
+        encoder_state = state["message_encoder"]
+        if self.message_encoder is None:
+            if encoder_state is not None:
+                raise ValueError(
+                    "Checkpoint has a message encoder but this swarm disables it"
+                )
+            validated_encoder = None
+        else:
+            if encoder_state is None:
+                raise ValueError(
+                    "Checkpoint omits the message encoder required by this swarm"
+                )
+            validated_encoder = _validate_tensor_state_dict(
+                encoder_state, "message encoder state"
+            )
+
+        for agent_id in sorted(expected_ids):
+            self.agents[agent_id].load_state_dict(agent_states[agent_id])
+            self.aggregators[agent_id].load_state_dict(
+                validated_aggregators[agent_id], strict=True
+            )
+        if self.message_encoder is not None and validated_encoder is not None:
+            self.message_encoder.load_state_dict(validated_encoder, strict=True)
+
+        graph = nx.Graph()
+        graph.add_nodes_from(range(self.config.num_agents))
+        graph.add_edges_from(edges)
+        self.graph = graph
 
 
 class RoleEmergenceTracker:
     """
-    Track metrics related to agent role emergence and specialization.
+    Track descriptive message-distribution and specialization proxies.
 
     Measures:
     - Message type distribution per agent
@@ -499,7 +680,7 @@ class RoleEmergenceTracker:
                 pass
 
     def get_metrics(self) -> Dict:
-        """Compute role emergence metrics."""
+        """Compute descriptive role-pattern metrics."""
         import math
 
         metrics = {}

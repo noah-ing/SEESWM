@@ -1,10 +1,9 @@
 """
 Advanced training with specialization pressure and diversity rewards.
 
-This script aims to produce swarms that:
-1. Show measurable synergy (agents contribute unique information)
-2. Develop emergent specialization (different agents do different things)
-3. Are sensitive to ablation (removing components hurts performance)
+This script applies specialization and diversity objectives, then records
+descriptive output, behavior, and ablation metrics. Those metrics are candidate
+signals for controlled follow-up, not evidence of emergence or superiority.
 """
 
 import sys
@@ -17,21 +16,96 @@ import torch.optim as optim
 import numpy as np
 from collections import deque
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List
 import argparse
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError, version as package_version
+import platform
+import random
+import subprocess
 
-from src.swarm.graph import SwarmGraph, SwarmConfig, TopologyType
+from src.swarm.graph import (
+    SWARM_STATE_SCHEMA_VERSION,
+    SwarmGraph,
+    SwarmConfig,
+    TopologyType,
+    swarm_config_to_dict,
+)
 from src.environment.cosmos import CosmosEnvironment
+
+
+def _source_revision() -> str | None:
+    """Read the local Git revision without making checkpointing depend on Git."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parent.parent,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    revision = result.stdout.strip()
+    return revision if result.returncode == 0 and revision else None
+
+
+def _source_dirty() -> bool | None:
+    """Report tracked or untracked worktree changes, or None without Git."""
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=Path(__file__).resolve().parent.parent,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return bool(result.stdout.strip()) if result.returncode == 0 else None
+
+
+def _dependency_versions() -> dict[str, str | None]:
+    versions: dict[str, str | None] = {"python": platform.python_version()}
+    for distribution in ("torch", "numpy", "networkx"):
+        try:
+            versions[distribution] = str(package_version(distribution))
+        except PackageNotFoundError:
+            versions[distribution] = None
+    return versions
+
+
+def _environment_config_to_dict(env: CosmosEnvironment) -> dict:
+    config = env.config
+    return {
+        "grid_size": int(config.grid_size),
+        "num_resources": int(config.num_resources),
+        "num_hazards": int(config.num_hazards),
+        "num_agents": int(config.num_agents),
+        "vision_radius": int(config.vision_radius),
+        "enable_respawn": bool(config.enable_respawn),
+        "respawn_delay": int(config.respawn_delay),
+        "num_food": int(config.num_food),
+        "num_water": int(config.num_water),
+        "num_material": int(config.num_material),
+        "hunger_rate": float(config.hunger_rate),
+        "thirst_rate": float(config.thirst_rate),
+        "starvation_threshold": float(config.starvation_threshold),
+        "movement_cost": float(config.movement_cost),
+        "stay_cost": float(config.stay_cost),
+        "max_steps": int(config.max_steps),
+    }
 
 
 @dataclass
 class SpecializationMetrics:
-    """Track how specialized agents become."""
-    action_entropy_per_agent: List[float]  # Low = specialized
-    message_variance_per_agent: List[float]  # High = unique outputs
-    pairwise_correlation: float  # Low = agents are different
-    specialization_score: float  # Combined metric
+    """Descriptive output-differentiation metrics."""
+    action_entropy_per_agent: List[float]
+    message_variance_per_agent: List[float]
+    pairwise_correlation: float
+    specialization_score: float  # Script-defined proxy
 
 
 class DiversityReward:
@@ -318,8 +392,22 @@ def train_with_specialization(
     device: str = "cpu",
     save_path: str = None,
     verbose: bool = True,
+    seed: int = 42,
 ):
     """Train swarm with specialization pressure."""
+
+    if num_epochs < 1 or num_agents < 1 or hidden_dim < 1:
+        raise ValueError("epochs, agents, and hidden dimension must be positive")
+    if lr <= 0 or not np.isfinite(lr):
+        raise ValueError("learning rate must be finite and positive")
+    if not np.isfinite(diversity_coef) or diversity_coef < 0:
+        raise ValueError("diversity coefficient must be finite and non-negative")
+    if seed < 0:
+        raise ValueError("seed must be non-negative")
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
     # Create swarm
     swarm_config = SwarmConfig(
@@ -328,7 +416,7 @@ def train_with_specialization(
         hidden_dim=hidden_dim,
         output_dim=hidden_dim,
         message_dim=hidden_dim,
-        topology=TopologyType.MODULAR,  # Modular encourages specialization
+        topology=TopologyType.MODULAR,
         num_perception=num_agents // 4,
         num_reasoning=num_agents // 4,
         num_memory=num_agents // 4,
@@ -338,7 +426,7 @@ def train_with_specialization(
 
     if verbose:
         print(f"Created swarm: {swarm.total_parameters:,} parameters")
-        print(f"Topology: MODULAR (encourages specialization)")
+        print("Topology: MODULAR")
         print(f"Diversity coefficient: {diversity_coef}")
 
     # Create environment
@@ -356,6 +444,7 @@ def train_with_specialization(
     # Training loop
     reward_history = deque(maxlen=100)
     best_avg_reward = float('-inf')
+    avg_reward = 0.0
 
     if verbose:
         print(f"\nTraining for {num_epochs} epochs...")
@@ -378,34 +467,74 @@ def train_with_specialization(
                   f"Spec: {spec_metrics.specialization_score:.4f} | "
                   f"Corr: {spec_metrics.pairwise_correlation:.3f}")
 
+    final_metrics = (
+        trainer.compute_specialization_metrics()
+        if verbose or save_path
+        else None
+    )
+
     if verbose:
+        assert final_metrics is not None
         print("-" * 70)
         print(f"Training complete! Final avg reward: {avg_reward:.2f}")
 
-        # Final specialization analysis
-        final_metrics = trainer.compute_specialization_metrics()
-        print(f"\nSpecialization Analysis:")
+        # Final descriptive metrics
+        print("\nDescriptive output metrics:")
         print(f"  Pairwise correlation: {final_metrics.pairwise_correlation:.4f} (lower = more diverse)")
-        print(f"  Specialization score: {final_metrics.specialization_score:.4f} (higher = more specialized)")
+        print(
+            "  Script-defined specialization proxy: "
+            f"{final_metrics.specialization_score:.4f}"
+        )
 
     # Save
     if save_path:
+        assert final_metrics is not None
+        save_file = Path(save_path).expanduser()
+        save_file.parent.mkdir(parents=True, exist_ok=True)
         save_data = {
-            'swarm_config': swarm_config.__dict__,
+            'schema_version': SWARM_STATE_SCHEMA_VERSION,
+            'checkpoint_type': 'specialization_training',
+            'swarm_config': swarm_config_to_dict(swarm_config),
             'swarm_state': swarm.state_dict(),
-            'action_head_state': trainer.action_head.state_dict(),
-            'value_head_state': trainer.value_head.state_dict(),
+            'policy_head': {
+                'type': 'mlp_relu',
+                'input_dim': int(swarm_config.output_dim),
+                'hidden_dim': 64,
+                'num_actions': 5,
+                'state_dict': dict(trainer.action_head.state_dict()),
+            },
+            'value_head': {
+                'type': 'mlp_relu',
+                'input_dim': int(swarm_config.output_dim),
+                'hidden_dim': 64,
+                'state_dict': dict(trainer.value_head.state_dict()),
+            },
+            'environment_config': _environment_config_to_dict(env),
+            'training_config': {
+                'algorithm': 'actor_critic_with_diversity',
+                'num_epochs': int(num_epochs),
+                'learning_rate': float(lr),
+                'gamma': float(trainer.gamma),
+                'entropy_coef': float(trainer.entropy_coef),
+                'diversity_coef': float(diversity_coef),
+                'max_episode_steps': 200,
+                'device': str(device),
+            },
             'training_metrics': {
-                'final_avg_reward': avg_reward,
-                'best_avg_reward': best_avg_reward,
-                'num_epochs': num_epochs,
-                'specialization_score': final_metrics.specialization_score,
-                'pairwise_correlation': final_metrics.pairwise_correlation,
-            }
+                'final_avg_reward': float(avg_reward),
+                'best_avg_reward': float(best_avg_reward),
+                'num_epochs': int(num_epochs),
+                'specialization_score': float(final_metrics.specialization_score),
+                'pairwise_correlation': float(final_metrics.pairwise_correlation),
+            },
+            'seed': int(seed),
+            'source_revision': _source_revision(),
+            'source_dirty': _source_dirty(),
+            'dependency_versions': _dependency_versions(),
         }
-        torch.save(save_data, save_path)
+        torch.save(save_data, save_file)
         if verbose:
-            print(f"\nSaved to {save_path}")
+            print(f"\nSaved to {save_file}")
 
     return swarm, trainer, avg_reward
 
@@ -419,6 +548,7 @@ def main():
     parser.add_argument("--diversity", type=float, default=0.1, help="Diversity reward coefficient")
     parser.add_argument("--device", type=str, default="cpu", help="Device")
     parser.add_argument("--save", type=str, default=None, help="Save path")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
     args = parser.parse_args()
 
     if args.save is None:
@@ -434,6 +564,7 @@ def main():
         diversity_coef=args.diversity,
         device=args.device,
         save_path=args.save,
+        seed=args.seed,
     )
 
 

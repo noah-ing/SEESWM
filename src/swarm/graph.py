@@ -2,15 +2,17 @@
 SwarmGraph - Manages agent connectivity and collective computation.
 
 The swarm is organized as a graph where nodes are agents and edges
-define which agents can communicate. Different topologies lead to
-different emergent behaviors.
+define which agents can communicate. Topology changes the available message
+paths; behavioral consequences require controlled evaluation.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
+import math
 import random
 
 import networkx as nx
@@ -18,7 +20,7 @@ import torch
 import torch.nn.functional as F
 
 from ..agents.micro_agent import MicroAgent, AgentConfig, AgentType
-from .messaging import MessageBus, Message
+from .messaging import MessageBus
 
 
 class TopologyType(Enum):
@@ -55,6 +57,321 @@ class SwarmConfig:
     num_reasoning: int = 25
     num_memory: int = 25
     num_planning: int = 25
+
+
+SWARM_STATE_SCHEMA_VERSION = 2
+MAX_PERSISTED_AGENTS = 512
+MAX_PERSISTED_DIMENSION = 4096
+MAX_PERSISTED_MESSAGE_ROUNDS = 32
+MAX_PERSISTED_MODEL_COMPLEXITY = 50_000_000
+
+_SWARM_CONFIG_KEYS = {
+    "num_agents",
+    "topology",
+    "message_passing_rounds",
+    "input_dim",
+    "hidden_dim",
+    "output_dim",
+    "message_dim",
+    "random_edge_prob",
+    "small_world_k",
+    "small_world_p",
+    "scale_free_m",
+    "num_perception",
+    "num_reasoning",
+    "num_memory",
+    "num_planning",
+}
+
+
+def _require_exact_keys(
+    value: Mapping,
+    expected: set[str],
+    context: str,
+) -> None:
+    actual = set(value.keys())
+    if actual != expected:
+        missing = sorted(expected - actual)
+        extra = sorted((repr(key) for key in actual - expected))
+        raise ValueError(
+            f"Invalid {context} keys; missing={missing}, extra={extra}"
+        )
+
+
+def _require_int(value: object, context: str) -> int:
+    if type(value) is not int:
+        raise TypeError(f"{context} must be a native int")
+    return value
+
+
+def _require_float(value: object, context: str) -> float:
+    if type(value) not in (int, float):
+        raise TypeError(f"{context} must be a native int or float")
+    return float(value)
+
+
+def validate_persisted_swarm_config(config: SwarmConfig) -> None:
+    """Validate resource bounds and structural invariants for checkpoints.
+
+    Runtime experiments may construct bespoke configurations directly. A
+    persisted configuration has a stronger trust boundary: the evaluator uses
+    it to allocate graphs and neural-network layers, so malformed or enormous
+    values must be rejected before model construction.
+    """
+    integer_fields = {
+        "num_agents": config.num_agents,
+        "message_passing_rounds": config.message_passing_rounds,
+        "input_dim": config.input_dim,
+        "hidden_dim": config.hidden_dim,
+        "output_dim": config.output_dim,
+        "message_dim": config.message_dim,
+        "small_world_k": config.small_world_k,
+        "scale_free_m": config.scale_free_m,
+        "num_perception": config.num_perception,
+        "num_reasoning": config.num_reasoning,
+        "num_memory": config.num_memory,
+        "num_planning": config.num_planning,
+    }
+    for name, value in integer_fields.items():
+        if type(value) is not int:
+            raise TypeError(f"swarm config {name} must be a native int")
+
+    if not 1 <= config.num_agents <= MAX_PERSISTED_AGENTS:
+        raise ValueError(
+            f"swarm config num_agents must be in [1, {MAX_PERSISTED_AGENTS}]"
+        )
+    if not 0 <= config.message_passing_rounds <= MAX_PERSISTED_MESSAGE_ROUNDS:
+        raise ValueError(
+            "swarm config message_passing_rounds must be in "
+            f"[0, {MAX_PERSISTED_MESSAGE_ROUNDS}]"
+        )
+    for name in ("input_dim", "hidden_dim", "output_dim", "message_dim"):
+        value = integer_fields[name]
+        if not 1 <= value <= MAX_PERSISTED_DIMENSION:
+            raise ValueError(
+                f"swarm config {name} must be in [1, {MAX_PERSISTED_DIMENSION}]"
+            )
+
+    # Conservative allocation proxy covering dense projections used by both
+    # generic and specialized agents. Individual field bounds are insufficient:
+    # a tiny file could otherwise request hundreds of enormous networks before
+    # strict state loading begins.
+    per_agent_complexity = (
+        (config.input_dim + config.message_dim + 64) * config.hidden_dim
+        + 8 * config.hidden_dim * config.hidden_dim
+        + 2 * config.hidden_dim * config.output_dim
+    )
+    total_complexity = config.num_agents * per_agent_complexity
+    if total_complexity > MAX_PERSISTED_MODEL_COMPLEXITY:
+        raise ValueError(
+            "swarm config exceeds the persisted-model allocation budget: "
+            f"{total_complexity} > {MAX_PERSISTED_MODEL_COMPLEXITY}"
+        )
+
+    role_counts = (
+        config.num_perception,
+        config.num_reasoning,
+        config.num_memory,
+        config.num_planning,
+    )
+    if any(value < 0 for value in role_counts):
+        raise ValueError("swarm config role counts must be non-negative")
+    if sum(role_counts) != config.num_agents:
+        raise ValueError(
+            "swarm config role counts must sum exactly to num_agents"
+        )
+
+    probability_fields = {
+        "random_edge_prob": config.random_edge_prob,
+        "small_world_p": config.small_world_p,
+    }
+    for name, value in probability_fields.items():
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise TypeError(f"swarm config {name} must be a finite native number")
+        if not 0.0 <= float(value) <= 1.0:
+            raise ValueError(f"swarm config {name} must be in [0, 1]")
+
+    if config.small_world_k < 0:
+        raise ValueError("swarm config small_world_k must be non-negative")
+    if (
+        config.topology == TopologyType.SMALL_WORLD
+        and config.small_world_k > config.num_agents
+    ):
+        raise ValueError("small_world_k must not exceed num_agents")
+    if config.scale_free_m < 1:
+        raise ValueError("swarm config scale_free_m must be positive")
+    if config.topology == TopologyType.SCALE_FREE and config.scale_free_m >= config.num_agents:
+        raise ValueError("scale_free_m must be smaller than num_agents")
+
+
+def swarm_config_to_dict(config: SwarmConfig) -> dict:
+    """Convert a SwarmConfig to a weights-only-safe primitive mapping."""
+    if not isinstance(config, SwarmConfig):
+        raise TypeError("config must be a SwarmConfig")
+    if not isinstance(config.topology, TopologyType):
+        raise TypeError("config topology must be a TopologyType")
+    validate_persisted_swarm_config(config)
+    return {
+        "num_agents": int(config.num_agents),
+        "topology": config.topology.name,
+        "message_passing_rounds": int(config.message_passing_rounds),
+        "input_dim": int(config.input_dim),
+        "hidden_dim": int(config.hidden_dim),
+        "output_dim": int(config.output_dim),
+        "message_dim": int(config.message_dim),
+        "random_edge_prob": float(config.random_edge_prob),
+        "small_world_k": int(config.small_world_k),
+        "small_world_p": float(config.small_world_p),
+        "scale_free_m": int(config.scale_free_m),
+        "num_perception": int(config.num_perception),
+        "num_reasoning": int(config.num_reasoning),
+        "num_memory": int(config.num_memory),
+        "num_planning": int(config.num_planning),
+    }
+
+
+def swarm_config_from_dict(data: object) -> SwarmConfig:
+    """Strictly reconstruct a SwarmConfig from native primitives."""
+    if not isinstance(data, Mapping):
+        raise TypeError("swarm config must be a mapping")
+    _require_exact_keys(data, _SWARM_CONFIG_KEYS, "swarm config")
+
+    topology_name = data["topology"]
+    if type(topology_name) is not str:
+        raise TypeError("swarm config topology must be an enum name string")
+    try:
+        topology = TopologyType[topology_name]
+    except KeyError as exc:
+        raise ValueError(f"Unknown topology name: {topology_name!r}") from exc
+
+    config = SwarmConfig(
+        num_agents=_require_int(data["num_agents"], "swarm config num_agents"),
+        topology=topology,
+        message_passing_rounds=_require_int(
+            data["message_passing_rounds"],
+            "swarm config message_passing_rounds",
+        ),
+        input_dim=_require_int(data["input_dim"], "swarm config input_dim"),
+        hidden_dim=_require_int(data["hidden_dim"], "swarm config hidden_dim"),
+        output_dim=_require_int(data["output_dim"], "swarm config output_dim"),
+        message_dim=_require_int(data["message_dim"], "swarm config message_dim"),
+        random_edge_prob=_require_float(
+            data["random_edge_prob"], "swarm config random_edge_prob"
+        ),
+        small_world_k=_require_int(
+            data["small_world_k"], "swarm config small_world_k"
+        ),
+        small_world_p=_require_float(
+            data["small_world_p"], "swarm config small_world_p"
+        ),
+        scale_free_m=_require_int(
+            data["scale_free_m"], "swarm config scale_free_m"
+        ),
+        num_perception=_require_int(
+            data["num_perception"], "swarm config num_perception"
+        ),
+        num_reasoning=_require_int(
+            data["num_reasoning"], "swarm config num_reasoning"
+        ),
+        num_memory=_require_int(
+            data["num_memory"], "swarm config num_memory"
+        ),
+        num_planning=_require_int(
+            data["num_planning"], "swarm config num_planning"
+        ),
+    )
+    validate_persisted_swarm_config(config)
+    return config
+
+
+def _validate_tensor_state_dict(data: object, context: str) -> dict[str, torch.Tensor]:
+    if not isinstance(data, Mapping):
+        raise TypeError(f"{context} must be a mapping")
+    result: dict[str, torch.Tensor] = {}
+    for key, value in data.items():
+        if type(key) is not str:
+            raise TypeError(f"{context} keys must be native strings")
+        if not isinstance(value, torch.Tensor):
+            raise TypeError(f"{context}[{key!r}] must be a tensor")
+        result[key] = value
+    return result
+
+
+def _validate_exact_int_ids(
+    data: object,
+    expected_ids: set[int],
+    context: str,
+) -> Mapping:
+    if not isinstance(data, Mapping):
+        raise TypeError(f"{context} must be a mapping")
+    for key in data:
+        if type(key) is not int:
+            raise TypeError(f"{context} keys must be native integer IDs")
+    actual_ids = set(data.keys())
+    if actual_ids != expected_ids:
+        missing = sorted(expected_ids - actual_ids)
+        extra = sorted(actual_ids - expected_ids)
+        raise ValueError(
+            f"{context} IDs do not match; missing={missing}, extra={extra}"
+        )
+    return data
+
+
+def _validate_graph_edges(data: object, num_agents: int) -> list[tuple[int, int]]:
+    """Validate and normalize a primitive undirected edge list."""
+    if type(data) is not list:
+        raise TypeError("graph_edges must be a native list")
+
+    edges: list[tuple[int, int]] = []
+    seen: set[tuple[int, int]] = set()
+    for index, edge in enumerate(data):
+        if type(edge) is not list or len(edge) != 2:
+            raise TypeError(f"graph_edges[{index}] must be a two-item native list")
+        source = _require_int(edge[0], f"graph_edges[{index}][0]")
+        target = _require_int(edge[1], f"graph_edges[{index}][1]")
+        if not 0 <= source < num_agents or not 0 <= target < num_agents:
+            raise ValueError(
+                f"graph_edges[{index}] endpoint outside [0, {num_agents}): "
+                f"{source}, {target}"
+            )
+        if source == target:
+            raise ValueError(f"graph_edges[{index}] is a self-loop")
+        normalized = (min(source, target), max(source, target))
+        if normalized in seen:
+            raise ValueError(f"graph_edges[{index}] duplicates edge {normalized}")
+        seen.add(normalized)
+        edges.append(normalized)
+
+    graph = nx.Graph()
+    graph.add_nodes_from(range(num_agents))
+    graph.add_edges_from(edges)
+    if num_agents > 0 and not nx.is_connected(graph):
+        raise ValueError("graph_edges must describe a connected graph")
+    return edges
+
+
+def _graph_edges_to_list(graph: nx.Graph, num_agents: int) -> list[list[int]]:
+    expected_nodes = set(range(num_agents))
+    for node in graph.nodes:
+        if type(node) is not int:
+            raise TypeError("graph node IDs must be native integers")
+    actual_nodes = set(graph.nodes)
+    if actual_nodes != expected_nodes:
+        missing = sorted(expected_nodes - actual_nodes)
+        extra = sorted(actual_nodes - expected_nodes)
+        raise ValueError(
+            f"Graph node IDs do not match config; missing={missing}, extra={extra}"
+        )
+
+    edge_list = [
+        [int(source), int(target)]
+        for source, target in sorted(
+            (min(source, target), max(source, target))
+            for source, target in graph.edges()
+        )
+    ]
+    _validate_graph_edges(edge_list, num_agents)
+    return edge_list
 
 
 class SwarmGraph:
@@ -158,8 +475,9 @@ class SwarmGraph:
             node_id += size
 
         # Sparse connections between clusters
-        for i, cluster1 in enumerate(cluster_nodes):
-            for cluster2 in cluster_nodes[i + 1 :]:
+        nonempty_clusters = [cluster for cluster in cluster_nodes if cluster]
+        for i, cluster1 in enumerate(nonempty_clusters):
+            for cluster2 in nonempty_clusters[i + 1 :]:
                 # Add a few inter-cluster edges
                 num_bridges = max(1, len(cluster1) // 5)
                 for _ in range(num_bridges):
@@ -353,10 +671,11 @@ class SwarmGraph:
         labels: torch.Tensor,
     ) -> dict[str, float]:
         """
-        Compute synergy metrics for the swarm.
+        Compute a legacy-named internal aggregation diagnostic.
 
-        Synergy = collective performance - sum of individual performances
-        Positive synergy means the whole is greater than sum of parts.
+        The score is collective inverse-MSE minus average individual inverse-MSE.
+        It is descriptive and does not establish causal coordination or
+        emergent collective behavior.
 
         Args:
             inputs: Test inputs [num_samples, input_dim]
@@ -386,8 +705,7 @@ class SwarmGraph:
 
         avg_individual_error = sum(individual_errors) / max(1, len(individual_errors))
 
-        # Synergy: if collective error is lower, we have positive synergy
-        # Convert to "performance" (inverse of error) for intuitive interpretation
+        # Convert error to a bounded inverse-error score for comparison.
         collective_perf = 1.0 / (1.0 + collective_error)
         avg_individual_perf = 1.0 / (1.0 + avg_individual_error)
 
@@ -422,22 +740,57 @@ class SwarmGraph:
         return sum(agent.num_parameters for agent in self.agents.values())
 
     def state_dict(self) -> dict:
-        """Get state for saving."""
+        """Get a versioned, weights-only-safe persistent state."""
+        expected_ids = set(range(self.config.num_agents))
+        _validate_exact_int_ids(self.agents, expected_ids, "swarm agents")
         return {
-            "config": self.config,
+            "schema_version": SWARM_STATE_SCHEMA_VERSION,
+            "config": swarm_config_to_dict(self.config),
             "agents": {i: a.state_dict() for i, a in self.agents.items()},
-            "graph_edges": list(self.graph.edges()),
+            "graph_edges": _graph_edges_to_list(
+                self.graph, self.config.num_agents
+            ),
         }
 
     def load_state_dict(self, state: dict) -> None:
-        """Load saved state."""
-        self.config = state["config"]
-        for i, agent_state in state["agents"].items():
-            self.agents[int(i)].load_state_dict(agent_state)
-        # Rebuild graph from edges
-        self.graph = nx.Graph()
-        self.graph.add_nodes_from(range(self.config.num_agents))
-        self.graph.add_edges_from(state["graph_edges"])
+        """Strictly load a schema-v2 state into a matching swarm."""
+        if not isinstance(state, Mapping):
+            raise TypeError("swarm state must be a mapping")
+        _require_exact_keys(
+            state,
+            {"schema_version", "config", "agents", "graph_edges"},
+            "swarm state",
+        )
+
+        schema_version = _require_int(
+            state["schema_version"], "swarm state schema_version"
+        )
+        if schema_version != SWARM_STATE_SCHEMA_VERSION:
+            raise ValueError(
+                f"Unsupported swarm state schema_version {schema_version}; "
+                f"expected {SWARM_STATE_SCHEMA_VERSION}"
+            )
+
+        saved_config = swarm_config_from_dict(state["config"])
+        if saved_config != self.config:
+            raise ValueError(
+                f"Swarm config mismatch: checkpoint={saved_config!r}, "
+                f"instance={self.config!r}"
+            )
+
+        expected_ids = set(self.agents.keys())
+        agent_states = _validate_exact_int_ids(
+            state["agents"], expected_ids, "swarm agent states"
+        )
+        edges = _validate_graph_edges(state["graph_edges"], self.config.num_agents)
+
+        for agent_id in sorted(expected_ids):
+            self.agents[agent_id].load_state_dict(agent_states[agent_id])
+
+        graph = nx.Graph()
+        graph.add_nodes_from(range(self.config.num_agents))
+        graph.add_edges_from(edges)
+        self.graph = graph
 
     @classmethod
     def from_genome(cls, genome: dict, device: str = "cpu") -> SwarmGraph:

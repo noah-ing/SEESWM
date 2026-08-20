@@ -2,11 +2,11 @@
 """
 Training script for neuromorphic (spiking) swarm.
 
-Demonstrates:
+Explores:
 1. Spiking neural network training with surrogate gradients
 2. STDP-based unsupervised learning
-3. Energy-efficient training
-4. Comparison: SNN vs ANN energy efficiency
+3. Sparse-activity training objectives
+4. Model-based SNN/ANN operation-energy estimates
 5. Spiking swarm on environment tasks
 """
 

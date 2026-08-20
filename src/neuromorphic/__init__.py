@@ -1,8 +1,8 @@
 """
 Neuromorphic computing module for SEESWM.
 
-Provides spiking neural network components for biologically-inspired,
-energy-efficient computation.
+Provides spiking neural network components and operation-count energy proxies.
+Actual energy use depends on deployment hardware and must be measured there.
 
 Key Components:
 - LIF neurons: Leaky Integrate-and-Fire with temporal dynamics

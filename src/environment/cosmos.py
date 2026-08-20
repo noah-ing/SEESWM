@@ -7,9 +7,9 @@ Phase 2: Enhanced with resource respawn, multiple resource types, and better phy
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import IntEnum
-from typing import Optional, List, Dict, Tuple
+from typing import List, Optional
 import random
 
 import torch
@@ -89,6 +89,75 @@ class EnvironmentConfig:
 
     # Max episode length
     max_steps: int = 500
+
+
+def _internal_wall_plan(grid_size: int) -> tuple[int, int]:
+    """Return the segment count and maximum length used by wall generation."""
+    return grid_size // 10, min(8, grid_size // 4)
+
+
+def worst_case_internal_wall_cells(grid_size: int) -> int:
+    """Return the maximum wall placements attempted by the maze generator.
+
+    ``_add_internal_walls`` creates ``grid_size // 10`` segments, each with a
+    maximum length of ``min(8, grid_size // 4)``.  Every placement coin flip
+    can succeed and the segments can be disjoint, so their product is the
+    fail-closed capacity budget.  Grids whose maximum segment is shorter than
+    the generator's three-cell minimum create no internal walls.
+    """
+    num_segments, max_length = _internal_wall_plan(grid_size)
+    if num_segments == 0 or max_length < 3:
+        return 0
+    return num_segments * max_length
+
+
+def validate_environment_capacity(config: EnvironmentConfig) -> None:
+    """Reject configurations that cannot support every placement phase.
+
+    Reserving the worst-case internal-wall budget keeps object density from
+    silently changing the maze-generation distribution and guarantees space
+    for every agent plus the goal before any randomized placement begins.
+    """
+    integer_fields = {
+        "grid_size": config.grid_size,
+        "num_resources": config.num_resources,
+        "num_hazards": config.num_hazards,
+        "num_agents": config.num_agents,
+        "num_food": config.num_food,
+        "num_water": config.num_water,
+        "num_material": config.num_material,
+    }
+    for name, value in integer_fields.items():
+        if type(value) is not int:
+            raise TypeError(f"{name} must be a native int")
+    if config.grid_size < 4:
+        raise ValueError("grid_size must be at least 4")
+    if config.num_agents < 1:
+        raise ValueError("num_agents must be at least 1")
+
+    object_counts = {
+        "num_resources": config.num_resources,
+        "num_hazards": config.num_hazards,
+        "num_food": config.num_food,
+        "num_water": config.num_water,
+        "num_material": config.num_material,
+    }
+    if any(value < 0 for value in object_counts.values()):
+        raise ValueError("environment object counts must be non-negative")
+
+    interior_cells = (config.grid_size - 2) ** 2
+    objects = sum(object_counts.values())
+    wall_budget = worst_case_internal_wall_cells(config.grid_size)
+    reserved = config.num_agents + 1  # distinct agent cells and the goal
+    required = objects + wall_budget + reserved
+    if required > interior_cells:
+        raise ValueError(
+            "environment requires "
+            f"{required} interior cells ({objects} objects, {wall_budget} "
+            f"worst-case internal walls, {reserved} agent/goal reservations), "
+            f"but a {config.grid_size}x{config.grid_size} grid has only "
+            f"{interior_cells}"
+        )
 
 
 @dataclass
@@ -175,6 +244,8 @@ class CosmosEnvironment:
                 vision_radius=vision_radius,
             )
 
+        validate_environment_capacity(self.config)
+
         self.grid_size = self.config.grid_size
         self.num_resources = self.config.num_resources
         self.num_hazards = self.config.num_hazards
@@ -186,12 +257,16 @@ class CosmosEnvironment:
 
         # Initialize agents
         self.agents: List[Agent] = []
+        occupied_positions: set[tuple[int, int]] = set()
         for _ in range(self.config.num_agents):
-            pos = self._random_empty_position()
+            pos = self._random_empty_position(excluded=occupied_positions)
             self.agents.append(Agent(position=pos))
+            occupied_positions.add(pos)
 
         # Goal position
-        self.goal_position = self._random_empty_position()
+        self.goal_position = self._random_empty_position(
+            excluded=occupied_positions
+        )
         self.grid[self.goal_position] = CellType.GOAL
 
         # Resource respawn tracking
@@ -202,13 +277,20 @@ class CosmosEnvironment:
 
         self.step_count = 0
 
-    def _random_empty_position(self) -> tuple[int, int]:
-        """Find a random empty cell."""
-        while True:
-            x = random.randint(0, self.grid_size - 1)
-            y = random.randint(0, self.grid_size - 1)
-            if self.grid[x, y] == CellType.EMPTY:
-                return (x, y)
+    def _random_empty_position(
+        self,
+        excluded: Optional[set[tuple[int, int]]] = None,
+    ) -> tuple[int, int]:
+        """Choose an empty cell or fail instead of looping indefinitely."""
+        excluded = excluded or set()
+        candidates = [
+            (int(x), int(y))
+            for x, y in np.argwhere(self.grid == CellType.EMPTY)
+            if (int(x), int(y)) not in excluded
+        ]
+        if not candidates:
+            raise RuntimeError("environment has no unreserved empty cell")
+        return random.choice(candidates)
 
     def _place_objects(self) -> None:
         """Place resources and hazards on the grid."""
@@ -249,7 +331,13 @@ class CosmosEnvironment:
     def _add_internal_walls(self) -> None:
         """Add internal walls to create maze-like structure."""
         # Add a few random wall segments
-        num_segments = self.grid_size // 10
+        num_segments, max_length = _internal_wall_plan(self.grid_size)
+        if num_segments == 0 or max_length < 3:
+            return
+
+        # Agent positions and the goal are selected after wall placement.
+        reserved_empty_cells = self.config.num_agents + 1
+        remaining_empty_cells = int(np.count_nonzero(self.grid == CellType.EMPTY))
 
         for _ in range(num_segments):
             # Random starting position
@@ -258,7 +346,7 @@ class CosmosEnvironment:
 
             # Random direction and length
             horizontal = random.random() < 0.5
-            length = random.randint(3, min(8, self.grid_size // 4))
+            length = random.randint(3, max_length)
 
             # Place wall segment with gaps
             for i in range(length):
@@ -270,7 +358,10 @@ class CosmosEnvironment:
 
                     # Only place if empty
                     if self.grid[wx, wy] == CellType.EMPTY:
+                        if remaining_empty_cells <= reserved_empty_cells:
+                            return
                         self.grid[wx, wy] = CellType.WALL
+                        remaining_empty_cells -= 1
 
     def _process_respawns(self) -> None:
         """Process pending resource respawns."""
@@ -535,8 +626,12 @@ class CosmosEnvironment:
         self.grid = np.zeros((self.grid_size, self.grid_size), dtype=np.int32)
         self._place_objects()
 
+        occupied_positions: set[tuple[int, int]] = set()
         for agent in self.agents:
-            agent.position = self._random_empty_position()
+            agent.position = self._random_empty_position(
+                excluded=occupied_positions
+            )
+            occupied_positions.add(agent.position)
             agent.energy = 1.0
             agent.damage = 0.0
             agent.recent_damage = 0.0
@@ -547,7 +642,9 @@ class CosmosEnvironment:
             agent.cells_visited = 0
             agent.steps_survived = 0
 
-        self.goal_position = self._random_empty_position()
+        self.goal_position = self._random_empty_position(
+            excluded=occupied_positions
+        )
         self.grid[self.goal_position] = CellType.GOAL
 
         self.pending_respawns = []

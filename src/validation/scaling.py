@@ -1,8 +1,9 @@
 """
-Scaling Law Experiments.
+Exploratory scaling-curve utilities.
 
-Test whether collective intelligence emerges at scale, following
-Chinchilla-style analysis of compute vs performance.
+These helpers fit descriptive curves and flag local slope changes. They do not
+establish scaling laws, phase transitions, or emergent behavior without a
+separate controlled protocol.
 """
 
 import torch
@@ -230,9 +231,10 @@ def find_phase_transitions(
     window_size: int = 3,
 ) -> List[Tuple[int, float]]:
     """
-    Detect phase transitions in scaling behavior.
+    Flag unusually large local gradient changes in scaling behavior.
 
-    Returns list of (scale_point, transition_magnitude) tuples.
+    Returns descriptive ``(scale_point, change_magnitude)`` tuples. The legacy
+    function name does not imply evidence of a phase transition.
     """
     # Sort by num_agents
     sorted_points = sorted(data_points, key=lambda p: p.num_agents)
@@ -253,7 +255,7 @@ def find_phase_transitions(
         before = np.mean(gradients[i-window_size:i])
         after = np.mean(gradients[i:i+window_size])
 
-        # Large change in gradient indicates phase transition
+        # Large changes are candidates for follow-up, not transition evidence.
         change = abs(after - before)
         threshold = 2 * np.std(gradients)
 

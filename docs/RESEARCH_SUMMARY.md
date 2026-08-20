@@ -1,105 +1,66 @@
-# SEESWM: Collective Intelligence from Specialized Agent Swarms
+# SEESWM evidence note
 
-## The Hypothesis
+This note describes only the evidence committed to this repository. It replaces
+an earlier draft that characterized untracked trained-model results as validated
+findings.
 
-**Collective intelligence from many small specialized agents will exhibit emergent capabilities that equivalent-parameter monolithic models cannot achieve.**
+## Available artifacts
 
----
+### `results/hypothesis_validation.json`
 
-## Method
+- Timestamp: 2025-12-19.
+- The generating script creates fresh networks and contains no training step.
+- The artifact records neither a source revision nor a seed. The current script
+  corrects its baseline sizing and agent-role invariants, so exact reproduction
+  of the historical values is not claimed.
+- In the ten random-regression trials, swarm MSE was 0.4486 ± 0.0117 and
+  baseline MSE was 0.4522 ± 0.0124; the swarm was lower in seven trials.
+- The recorded parameter counts are 563,520 for the swarm and 44,752 for the
+  baseline, so this is not an equivalent-parameter comparison.
+- The remaining experiments are small untrained sweeps over agent count,
+  topology, and ten grid-world episodes.
 
-We implement a swarm of 20 micro-agents (each ~100K parameters, 2M total) connected via a small-world graph topology. Each agent has architectural biases suited to its role: attention mechanisms for perception agents, transformer-style blocks for reasoning agents, key-value stores for memory agents, and goal-conditioning for planning agents. Agents communicate through 3 rounds of message passing per timestep, with no shared weights or direct access to each other's hidden states.
+### `results/emergence/emergence_scaling_results.json`
 
-The swarm is trained via policy gradient (REINFORCE with baseline) on a survival task in a 64x64 grid world containing resources (energy, food, water, materials), hazards, and respawning dynamics. The intrinsic motivation comes from a JEPA-style world model that provides curiosity bonuses for unpredicted state transitions.
+- Timestamp: 2026-01-03.
+- Covers 4, 10, 20, 50, 100, and 150 fresh swarms.
+- The artifact does not identify a checkpoint or invocation, and no checkpoint
+  is tracked in the repository.
+- Mean reward peaks at 1.236 for 10 agents in this artifact and is 0.800 for 100
+  agents. This is a descriptive untrained scaling observation.
+- Historical “phase transition” entries are outputs of a slope-change
+  heuristic, not hypothesis-test results. The current script calls them
+  `slope_change_flags`.
 
-We compare against five baselines: (1) single agent with equivalent parameters, (2) ensemble of independent agents, (3) centralized controller, (4) swarm without message passing, and (5) random policy. We measure emergence through three metrics:
+## Checkpoint and evaluator status
 
-- **Specialization Index (SI)**: Ratio of between-agent to within-agent behavioral variance
-- **Behavioral Diversity (BD)**: Mean pairwise Jensen-Shannon divergence between agent action distributions
-- **Role Clustering**: Hierarchical clustering to identify distinct behavioral roles
+The candidate writers `train_for_validation.py`, `train_specialized.py`, and
+`train_specialization.py` use a versioned primitive/tensor-only checkpoint
+schema; older training scripts remain legacy-only. The evaluators require
+PyTorch 2.10 or newer, use its restricted loader, cap accepted file size,
+reconstruct the saved topology and policy head, strict-load every component
+used by the evaluated policy, and reject mismatches. Value-head and world-model
+state may be retained for provenance but are not evaluated by the policy
+diagnostic. Legacy schemas are rejected. A `.pt` file still requires trusted
+provenance and a verified digest; these controls are not a sandbox. The report
+records the checkpoint SHA-256 and does not certify emergence, generalization,
+or baseline superiority.
 
-Crucially, we test against a **null hypothesis**: we compare trained swarm specialization against 30 randomly-initialized swarms to establish statistical significance.
+## Unsupported conclusions
 
----
+The committed artifacts do not support claims of trained emergent
+specialization, a 100-fold performance advantage, 100% transfer efficiency,
+robustness, scalable oversight, or superiority to trained standard baselines.
+They also do not establish that agent messages are causally useful.
 
-## Key Result
+## Required evidence for stronger claims
 
-**The trained swarm shows statistically significant emergent specialization.**
+- versioned trained checkpoints and full training configurations;
+- matched parameter, compute, data, and optimization budgets;
+- established MARL baselines and tasks requiring coordination;
+- multiple seeds with uncertainty estimates and predefined tests;
+- raw trajectories, evaluation logs, environment versions, and dependency lock;
+- explicit message-passing and specialization ablations.
 
-| Metric | Trained Swarm | Random Baseline | Statistical Test |
-|--------|---------------|-----------------|------------------|
-| Specialization Index | 0.123 | 0.041 | p < 0.001, Cohen's d = 5.22 |
-| Behavioral Diversity | 0.572 | ~0.45 | Higher diversity learned |
-| Distinct Roles | 6 clusters | — | Hierarchical clustering |
-| Swarm vs Single Agent | **1.0 reward** | **-0.01 reward** | 100x performance gap |
-| vs. All Baselines | 10/10 wins | — | Head-to-head comparison |
-| Agent Importance Range | 0.29 (top) to 0.06 (median) | — | 5x variance in contribution |
-
-![Scaling analysis showing phase transitions](../results/emergence/scaling_analysis.png)
-
-**Scaling experiments reveal phase transitions at 10, 20, 50, and 100 agents.** Untrained swarms peak at 10 agents, with performance declining logarithmically beyond that point (R² = 0.70). This underscores that the architectural advantage requires learned coordination.
-
-**What didn't work:** Fully-connected topologies caused coordination collapse (O(N²) message volume overwhelmed agents). Small-world structure with average degree ~4 was necessary. Random message noise hurt more than no messages at all (-25% vs -10%), suggesting agents learn to rely on message structure.
-
----
-
-## Why Does This Work? (Hypothesis)
-
-We hypothesize two mechanisms:
-
-1. **Information bottleneck**: Agents can't share raw hidden states; they must compress observations into messages. This forces learning of relevant features and may prevent overfitting, similar to how biological neural pathways evolved limited bandwidth.
-
-2. **Credit assignment drives specialization**: In a swarm, agents that contribute useful messages receive stronger policy gradient signals. This creates feedback loops: agents "good at" perception get reinforced for perception, naturally producing division of labor.
-
-These are hypotheses, not verified mechanisms. Testing requires measuring MI(observations, messages) vs MI(observations, hidden states).
-
----
-
-## Implications for AI Safety and Alignment
-
-The swarm architecture offers several properties relevant to AI safety:
-
-1. **Interpretability through Modularity**: When reasoning happens via explicit message passing between discrete agents, the "conversation" is inspectable. We can trace which agent contributed what information and how it influenced the final decision. This is fundamentally more transparent than probing hidden states in a monolithic network.
-
-2. **Graceful Degradation**: In ablation studies, removing individual agents or communication pathways causes proportional—not catastrophic—performance drops. There's no single point of failure. This contrasts with brittle learned features in large models that can cause complete failure when perturbed.
-
-3. **Emergent Checks and Balances**: The division of labor creates implicit verification—a perception agent's claim must be coherent enough for reasoning agents to act on. Bad information gets filtered through multiple specialized perspectives before affecting output.
-
-4. **Scalable Oversight**: Rather than monitoring one opaque decision-making process, we can monitor the communication graph. Anomalous messaging patterns (e.g., an agent that suddenly dominates or goes silent) could serve as early warning indicators.
-
-However, emergence also creates alignment challenges. Specialization develops without explicit supervision—agents find their roles through training dynamics, not design. Understanding *why* particular role assignments emerged, and whether they're robust to distributional shift, remains an open problem.
-
----
-
-## Limitations
-
-- **Single environment**: All results from one grid world. Unknown if findings transfer.
-- **Weak baselines**: Cohen's d = 5.22 is against random init, not trained alternatives.
-- **Untrained scaling**: The scaling table shows architectural bias, not learned behavior.
-- **Unverified theory**: Information bottleneck hypothesis is stated, not tested.
-
----
-
-## Next Experiments
-
-To make this publication-ready:
-
-1. **Harder environments**: Tasks where information sharing is required, not just helpful
-2. **Trained scaling curves**: Train at 4/10/20/50/100 agents, compare peaks
-3. **Real baselines**: QMIX, MAPPO, COMA with matched compute budget
-4. **Trained single-agent**: 2M parameter MLP with same training budget
-5. **Information bottleneck measurement**: Compute MI(observations, messages) empirically
-6. **Topology ablations**: Small-world vs ring vs hierarchical vs random
-
-The core question: Does swarm coordination provide advantages a well-trained monolith cannot replicate?
-
----
-
-## Contact
-
-This is a proof-of-concept exploring whether collective intelligence can be architected, not just hoped for. The hypothesis is validated; the question now is how far it scales.
-
----
-
-*Implementation: ~10K lines of PyTorch, 6 development phases, 104 tests, full validation suite.*
-*Results reproducible via: `python experiments/emergence_scaling_analysis.py`*
+See the repository README for reproduction commands and the current project
+scope.

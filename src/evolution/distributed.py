@@ -10,17 +10,21 @@ Supports:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional, Dict, List, Tuple, Any, Callable
-from enum import Enum
-import os
 import math
+import os
+from dataclasses import dataclass
+from enum import Enum
+from typing import Callable, Dict, List, Optional
 
 import torch
 import torch.nn as nn
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
+
+from ..utils.checkpoint import load_bounded_weights_only
+
+DISTRIBUTED_CHECKPOINT_SCHEMA_VERSION = 1
 
 
 class ParallelismMode(Enum):
@@ -497,6 +501,7 @@ class DistributedTrainer:
             )
 
         checkpoint = {
+            "schema_version": DISTRIBUTED_CHECKPOINT_SCHEMA_VERSION,
             "model_state_dict": self.model.module.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "global_step": self.global_step,
@@ -505,9 +510,43 @@ class DistributedTrainer:
         torch.save(checkpoint, path)
 
     def load_checkpoint(self, path: str) -> None:
-        """Load training checkpoint."""
-        checkpoint = torch.load(path, map_location=self.manager.device)
-        self.model.module.load_state_dict(checkpoint["model_state_dict"])
+        """Strict-load a versioned restricted-loader training checkpoint."""
+        checkpoint, _, _ = load_bounded_weights_only(
+            path,
+            map_location=self.manager.device,
+        )
+        if type(checkpoint) is not dict:
+            raise TypeError("distributed checkpoint must be a native dict")
+        expected = {
+            "schema_version",
+            "model_state_dict",
+            "optimizer_state_dict",
+            "global_step",
+            "epoch",
+        }
+        if set(checkpoint) != expected:
+            raise ValueError("distributed checkpoint fields do not match schema")
+        if (
+            type(checkpoint["schema_version"]) is not int
+            or checkpoint["schema_version"]
+            != DISTRIBUTED_CHECKPOINT_SCHEMA_VERSION
+        ):
+            raise ValueError("unsupported distributed checkpoint schema")
+        for field_name in ("global_step", "epoch"):
+            value = checkpoint[field_name]
+            if type(value) is not int or value < 0:
+                raise ValueError(
+                    f"distributed checkpoint {field_name} must be non-negative"
+                )
+        if type(checkpoint["model_state_dict"]) is not dict:
+            raise TypeError("model_state_dict must be a native dict")
+        if type(checkpoint["optimizer_state_dict"]) is not dict:
+            raise TypeError("optimizer_state_dict must be a native dict")
+
+        self.model.module.load_state_dict(
+            checkpoint["model_state_dict"],
+            strict=True,
+        )
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.global_step = checkpoint["global_step"]
         self.epoch = checkpoint["epoch"]
