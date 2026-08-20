@@ -7,7 +7,8 @@ Each agent type has a different architectural inductive bias:
 - Memory: Key-value memory with read/write operations
 - Planning: Hierarchical with goal conditioning
 
-These specialized architectures enable emergent division of labor.
+These architectures provide role-specific inductive biases. Whether training
+produces stable behavioral differentiation is an empirical question.
 """
 
 from __future__ import annotations

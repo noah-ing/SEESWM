@@ -219,9 +219,9 @@ def compare_curiosity_vs_no_curiosity(
     device: str = "cpu",
 ):
     """
-    Compare performance of curiosity-driven vs standard RL.
+    Run an exploratory curiosity-versus-standard-RL comparison.
 
-    This validates that curiosity improves exploration and performance.
+    A single run does not validate a general improvement claim.
     """
     print("=" * 60)
     print("Comparison: Curiosity vs No Curiosity")

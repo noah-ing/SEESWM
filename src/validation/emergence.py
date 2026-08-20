@@ -1,7 +1,8 @@
-"""
-Emergent Behavior Detection.
+"""Candidate behavioral-pattern heuristics.
 
-Detect behaviors that weren't explicitly rewarded but emerged from training.
+These functions flag simple correlations in trajectories and messages. They do
+not establish learning, causality, cooperation, tool use, planning, semantic
+communication, or emergence.
 """
 
 import torch
@@ -14,7 +15,7 @@ from collections import defaultdict
 
 @dataclass
 class EmergentBehavior:
-    """Detected emergent behavior."""
+    """Heuristic behavioral flag (the public name is retained for compatibility)."""
     name: str
     description: str
     frequency: float  # How often observed
@@ -48,7 +49,7 @@ class BehaviorProbe(nn.Module):
 
 
 class EmergenceDetector:
-    """Detect emergent behaviors in trained swarms."""
+    """Detect candidate behavioral patterns in agent swarms."""
 
     def __init__(
         self,
@@ -78,13 +79,7 @@ class EmergenceDetector:
         self,
         trajectories: List[Dict],
     ) -> Optional[EmergentBehavior]:
-        """
-        Detect if agents learn to use environmental objects as tools.
-
-        Looks for patterns like:
-        - Collecting materials before building
-        - Using resources strategically
-        """
+        """Flag episodes where material collection precedes higher reward."""
         tool_use_count = 0
         total_episodes = len(trajectories)
 
@@ -112,7 +107,7 @@ class EmergenceDetector:
         if frequency > 0.1:  # At least 10% of episodes
             return EmergentBehavior(
                 name="tool_use",
-                description="Agents collect materials before high-reward actions",
+                description="Material collection preceded higher near-term reward",
                 frequency=frequency,
                 strength=min(1.0, frequency * 2),
                 evidence=[f"Observed in {tool_use_count}/{total_episodes} episodes"],
@@ -123,13 +118,7 @@ class EmergenceDetector:
         self,
         message_history: List[Dict],
     ) -> List[CommunicationPattern]:
-        """
-        Detect if stable communication protocols emerge.
-
-        Looks for:
-        - Consistent message patterns between agent pairs
-        - Semantic clustering of messages
-        """
+        """Flag low-variance pairwise message streams, without semantic claims."""
         patterns = []
 
         # Group messages by source-target pairs
@@ -166,13 +155,7 @@ class EmergenceDetector:
         self,
         agent_action_histories: Dict[int, List[int]],
     ) -> Optional[EmergentBehavior]:
-        """
-        Detect if agents specialize in different roles.
-
-        Looks for:
-        - Agents preferring different action distributions
-        - Stable role assignments over time
-        """
+        """Flag differences among empirical per-agent action distributions."""
         from scipy.stats import entropy
 
         num_agents = len(agent_action_histories)
@@ -218,13 +201,7 @@ class EmergenceDetector:
         self,
         trajectories: List[Dict],
     ) -> Optional[EmergentBehavior]:
-        """
-        Detect if agents show planning/anticipation.
-
-        Looks for:
-        - Actions that don't give immediate reward but lead to better outcomes
-        - Goal-directed movement patterns
-        """
+        """Flag low immediate reward followed by higher near-term reward."""
         anticipatory_count = 0
         total_opportunities = 0
 
@@ -246,7 +223,7 @@ class EmergenceDetector:
         if frequency > 0.05:  # At least 5% anticipatory actions
             return EmergentBehavior(
                 name="anticipatory_behavior",
-                description="Agents take suboptimal immediate actions for future gain",
+                description="Low immediate reward was followed by higher near-term reward",
                 frequency=frequency,
                 strength=min(1.0, frequency * 5),
                 evidence=[f"Observed {anticipatory_count} anticipatory actions"],
@@ -257,13 +234,7 @@ class EmergenceDetector:
         self,
         multi_agent_trajectories: List[Dict],
     ) -> Optional[EmergentBehavior]:
-        """
-        Detect cooperative behaviors between agents.
-
-        Looks for:
-        - Coordinated actions
-        - Resource sharing patterns
-        """
+        """Flag how often agents select identical actions on the same step."""
         cooperation_events = 0
         total_steps = 0
 
@@ -280,7 +251,7 @@ class EmergenceDetector:
                 step_actions = [actions[step] for actions in agent_actions.values() if step < len(actions)]
 
                 if len(set(step_actions)) == 1 and len(step_actions) > 1:
-                    # All agents took same action - coordination
+                    # Identical actions are a correlation, not proof of coordination.
                     cooperation_events += 1
 
         frequency = cooperation_events / (total_steps + 1e-10)
@@ -288,7 +259,7 @@ class EmergenceDetector:
         if frequency > 0.1:  # 10% coordinated actions
             return EmergentBehavior(
                 name="cooperation",
-                description="Agents coordinate their actions",
+                description="Agents selected identical actions on the same steps",
                 frequency=frequency,
                 strength=min(1.0, frequency * 3),
                 evidence=[f"Observed {cooperation_events} coordinated steps"],
@@ -300,7 +271,7 @@ class EmergenceDetector:
         trajectories: List[Dict],
         message_history: Optional[List[Dict]] = None,
     ) -> Dict[str, EmergentBehavior]:
-        """Run all emergence detection analyses."""
+        """Run all candidate-pattern heuristics."""
         behaviors = {}
 
         # Tool use
@@ -334,7 +305,7 @@ class EmergenceDetector:
             if protocols:
                 behaviors['communication'] = EmergentBehavior(
                     name="communication_protocol",
-                    description=f"Detected {len(protocols)} stable communication patterns",
+                    description=f"Observed {len(protocols)} low-variance message streams",
                     frequency=1.0,
                     strength=min(1.0, len(protocols) / 10),
                     evidence=[f"{len(protocols)} patterns detected"],

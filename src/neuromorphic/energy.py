@@ -1,10 +1,9 @@
 """
-Energy efficiency metrics for neuromorphic computing.
+Operation-count energy proxies for neuromorphic computing.
 
-Spiking neural networks are energy-efficient because:
-1. Spikes are sparse (typically 1-10% activity)
-2. Computation only occurs when spikes arrive
-3. Event-driven processing on neuromorphic hardware
+Sparse, event-driven execution can reduce operations on compatible hardware,
+but this module does not measure wall-plug energy or validate hardware-level
+efficiency.
 
 This module provides:
 1. Spike counting and rate metrics
@@ -387,7 +386,7 @@ class EnergyEfficientLoss(nn.Module):
     """
     Loss function that penalizes high spike rates.
 
-    Encourages sparse, energy-efficient solutions.
+    Encourages sparse spike activity; energy impact is hardware-dependent.
     """
 
     def __init__(

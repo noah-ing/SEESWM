@@ -1,212 +1,144 @@
-# SEESWM: Self-Evolving Embodied Swarm World-Modeler
+# SEESWM
 
-*What if intelligence isn't a monolith, but a conversation?*
+SEESWM is a research prototype for experimenting with small neural agents that
+exchange messages in a simulated grid world. It includes multiple agent
+specializations, graph topologies, world-model components, training scripts,
+and exploratory evaluation utilities.
 
----
+> **Status:** proof of concept. This repository does not contain a trained model
+> checkpoint, peer-reviewed result, safety evaluation, or evidence of a
+> production-ready agent system. The checked-in results are small exploratory
+> runs and should not be read as validation of emergent intelligence.
 
-## The Problem with Modern AI
+## Research question
 
-Today's AI systems are architectural dictatorships. A single massive network processes everything - vision, language, reasoning, planning - through one homogeneous computational substrate. This works, but it's brittle. When GPT fails, the whole system fails. When a vision model hallucinates, there's no internal voice saying "wait, that doesn't make sense."
+Can a graph of specialized agents develop useful coordination or division of
+labor that a carefully matched monolithic model does not?
 
-Biological brains evolved differently. Your visual cortex doesn't do language. Your hippocampus doesn't control your muscles. Specialized regions communicate through structured pathways, and somehow, from this cacophony of chatter, coherent thought emerges. Ant colonies solve optimization problems no individual ant could comprehend. Bee swarms make decisions through a democracy of waggles.
+The codebase provides infrastructure for investigating that question. The
+tracked evidence does not answer it yet: the committed comparison uses
+untrained networks and its nominal baseline is not parameter matched.
 
-What if we built AI the same way?
+## What is implemented
 
----
+- perception, reasoning, memory, and planning agent variants;
+- message passing over small-world, modular, hierarchical, and other graphs;
+- a configurable resource-and-hazard grid environment;
+- experimental world-model, metacognition, neuromorphic, and evolutionary
+  modules;
+- ablation, scaling, generalization, statistics, and interpretability helpers;
+- training and exploratory evaluation scripts under `experiments/`.
 
-## The Hypothesis
+These modules are experimental scaffolding. Their presence does not establish
+that every proposed mechanism has been trained, validated, or integrated into a
+single end-to-end system.
 
-**Collective intelligence from many small specialized agents will exhibit emergent capabilities that equivalent-parameter monolithic models cannot achieve.**
+## Tracked evidence
 
-This is testable. Take 20 small neural networks, each with ~100K parameters. Connect them in a graph. Let them pass messages. Compare against a single 2M parameter network.
+Two JSON artifacts are committed so the current claims can be audited directly.
 
-If the hypothesis is wrong, the monolith wins - more concentrated compute, no communication overhead.
+### Fresh-network comparison
 
-If the hypothesis is right, something interesting happens. The swarm develops capabilities none of its members possess individually. The whole becomes greater than the sum of its parts.
+[`results/hypothesis_validation.json`](results/hypothesis_validation.json) was
+recorded on 2025-12-19. Its generator constructed new networks and evaluated
+them without a training step. The artifact does not record a source revision or
+seed. The current
+[`validate_hypothesis.py`](experiments/validate_hypothesis.py) retains the
+fresh-network scope but corrects the baseline sizing and role-count invariants,
+so it is an extension of that experiment rather than a bit-for-bit reproducer.
 
----
+| Recorded experiment | Scope | Recorded result |
+|---|---:|---|
+| Random regression comparison | 10 trials | swarm MSE 0.4486 vs baseline MSE 0.4522; swarm lower in 7/10 trials |
+| Internal aggregation-score sweep | 5 trials per size | highest mean score at 20 agents (0.0761) |
+| Random topology sweep | 10 trials per topology | modular graph had the highest internal score (0.0705) |
+| Grid-world rollouts | 10 episodes | reward 0.509 ± 2.235; survival 94 ± 18 steps; exploration 1.56% ± 0.72% |
 
-## What We Built
+The comparison is **not equivalent-parameter**: the artifact records 563,520
+swarm parameters and 44,752 baseline parameters. The MSE difference is small,
+and no confidence interval or significance test is recorded for it.
 
-SEESWM is an architecture for testing this hypothesis. It has three core ideas:
+### Untrained scaling sweep
 
-**1. Micro-Agents with Specializations**
+[`results/emergence/emergence_scaling_results.json`](results/emergence/emergence_scaling_results.json)
+was recorded on 2026-01-03 for 4, 10, 20, 50, 100, and 150 agents. The artifact
+does not record a checkpoint identifier or invocation arguments, and no model
+checkpoint is tracked in this repository. It should therefore be treated as an
+untrained/default scaling sweep unless independent provenance is supplied.
 
-Instead of one network that does everything, we have many small networks that do specific things. Perception agents extract features. Reasoning agents draw inferences. Memory agents store and retrieve. Planning agents select actions. Each has architectural biases suited to its role - attention for perception, working memory for reasoning, key-value stores for memory.
+The recorded mean reward peaks at 10 agents (1.236) and falls to 0.800 at 100
+agents, while both parameter count and message count increase with swarm size.
+The historical artifact's “phase transition” labels came from a local
+slope-change heuristic; they are descriptive flags, not statistical evidence
+of a physical or learned phase transition. The old plot is retained beside the
+artifact for provenance, but is not presented here as a research result.
 
-**2. Message Passing on Graphs**
+## What these artifacts do not show
 
-Agents don't share weights or hidden states. They communicate by sending messages through a graph topology. Small-world networks balance local clustering with global shortcuts. Hierarchical structures create information flow from perception to action. The topology itself becomes a design choice that affects what collective behaviors can emerge.
+- a trained swarm outperforming a trained, compute-matched baseline;
+- 100% transfer or generalization to unseen environments;
+- statistically validated emergent specialization;
+- robustness, graceful degradation, alignment, or safety properties;
+- results outside one simulated grid-world family;
+- reproducibility across hardware, dependency versions, or independent teams.
 
-**3. Grounding in Simulated Worlds**
+## Reproduce and extend
 
-Abstract benchmarks miss something important about intelligence: it evolved to keep organisms alive. Our agents operate in a grid world with resources to collect, hazards to avoid, and survival pressures that demand coordination. The world model predicts what happens next, and prediction errors drive curiosity - the intrinsic motivation to explore.
-
----
-
-## Does It Work?
-
-We built a rigorous validation framework with seven criteria. After training for 1000 epochs:
-
-| Criterion | Result |
-|-----------|--------|
-| **Ablations** | Swarm: 1.0 reward vs Single Agent: -0.01 reward (p < 0.001) |
-| **Scaling** | Peak at 10 agents (1.24), declines to 0.80 at 100 agents |
-| **Synergy** | Consistent high performance indicates effective coordination |
-| **Baselines** | Beats all 5 baselines: single agent, ensemble, centralized, independent, random (10/10 wins) |
-| **Generalization** | Transfers to unseen environments (100% transfer efficiency) |
-| **Emergence** | Specialization Index 3x higher than random (p < 0.001, Cohen's d = 5.22) |
-| **Interpretability** | Agent importance varies 5x (top agent: 0.29, median: 0.06) |
-
-**Score: 7/7 criteria addressed. But this is proof-of-concept, not publication-ready.**
-
-### How We Measure Emergence
-
-Claiming "emergence" without rigorous methodology invites skepticism. Here's our approach:
-
-**1. Specialization Index (SI)** - Between-agent variance / within-agent variance
-- High SI means different agents behave differently, but each agent is internally consistent
-- Trained swarm: SI = 0.123, Random baseline: SI = 0.041
-- **3x higher specialization than random initialization**
-
-**2. Null Hypothesis Testing**
-- We compare trained swarms against 30 randomly-initialized swarms
-- P-value < 0.001: Trained specialization is NOT random variance
-- Effect size (Cohen's d) = 5.22: This is a HUGE effect (>0.8 is considered "large")
-
-**3. Role Clustering**
-- Hierarchical clustering on agent action distributions identifies 6 distinct behavioral roles
-- Cluster sizes: [4, 2, 5, 4, 2, 3] agents - non-uniform distribution indicates genuine specialization
-
-**4. Behavioral Diversity (BD)** - Mean pairwise Jensen-Shannon divergence
-- BD ranges from 0 (identical) to 1 (maximally different); trained swarm achieves 0.57
-- This indicates substantial differentiation: agents are doing genuinely different things, not noisy copies
-
-The swarm doesn't just outperform alternatives - we can now explain *why*. The architecture matters: replacing the swarm with a single network of equivalent parameters causes performance to collapse. Agents show distinct behavioral patterns. The collective succeeds where individuals fail.
-
----
-
-## Why This Matters
-
-If this works - really works, with measurable synergy and emergent behaviors - it suggests a different path for AI development. Instead of scaling monolithic models to trillions of parameters, we could scale collectives of specialized agents. This has practical advantages:
-
-**Interpretability**: When reasoning happens through message passing between discrete agents, you can inspect the conversation. Which agent said what? What information flowed where? This is harder with a single network's hidden states.
-
-**Robustness**: If one agent fails or produces nonsense, others can compensate or override. There's no single point of failure.
-
-**Modularity**: Add new capabilities by adding new agent types. Remove capabilities by removing agents. The system adapts its structure to the task.
-
-**Efficiency**: Not every problem needs every capability. A swarm can activate relevant specialists and let others idle. Neuromorphic implementations could be radically more energy-efficient.
-
-But these advantages only matter if the core hypothesis holds. Does collective intelligence actually emerge? That's what we're trying to find out.
-
----
-
-## Try It Yourself
+Python 3.10 or 3.11 is recommended.
 
 ```bash
-pip install torch numpy networkx scipy scikit-learn pyyaml tqdm
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[dev,analysis,viz]'
 
-# Train a swarm
-python experiments/train_for_validation.py --epochs 1000
+# Unit tests
+python -m pytest
 
-# Run the validation suite
-python experiments/validate_rigorously.py --model results/models/swarm_trained_*.pt
+# Re-run the fresh-network experiments
+python experiments/validate_hypothesis.py --device cpu --seed 0 \
+  --output results/hypothesis_validation.local.json
 
-# Run all tests
-pytest tests/ -v
+# Quick fresh-random behavioral/scaling smoke test
+python experiments/emergence_scaling_analysis.py --device cpu --seed 0 --quick \
+  --output results/behavioral-local
+
+# Train a schema-v2 candidate checkpoint, then evaluate that exact policy
+python experiments/train_for_validation.py --device cpu \
+  --save results/models/candidate.pt
+python experiments/validate_rigorously.py --device cpu --seeds 10 --episodes 10 \
+  --max-steps 100 --model results/models/candidate.pt \
+  --output results/validation-local
 ```
 
-The codebase includes six phases of implementation: foundation, world modeling, specialization, meta-cognition, neuromorphic computing, and evolutionary scaling. Each builds on the last, and each is independently testable.
+Write new outputs to a separate path so the committed evidence remains intact.
+The candidate writers `train_for_validation.py`, `train_specialized.py`, and
+`train_specialization.py` write restricted-loader-compatible schema-v2
+checkpoints containing the swarm configuration, policy head, environment, and
+native-type metrics. Other historical training scripts have not been migrated
+and their outputs are not accepted by the schema-v2 evaluator. The evaluator
+requires PyTorch 2.10 or newer, uses the restricted loader, bounds checkpoint
+size, and rejects older schemas or any configuration, topology, agent, edge, or
+policy mismatch instead of falling back to random weights. Its diagnostic
+report records the checkpoint SHA-256. These controls do not make arbitrary
+third-party `.pt` files safe; use only a checkpoint with trusted provenance and
+a verified digest. See [`SECURITY.md`](SECURITY.md). The diagnostic is still not
+a substitute for trained controls or independent validation.
 
----
+## Minimum credible next experiment
 
-## Scaling Behavior
+1. Train the swarm and a parameter- and compute-matched monolithic baseline.
+2. Pre-register primary metrics, seeds, stopping rules, and exclusion criteria.
+3. Evaluate on tasks that require information sharing, plus held-out world
+   layouts and at least one established multi-agent benchmark.
+4. Report per-seed results, confidence intervals, effect sizes, and failures.
+5. Publish checkpoints, raw trajectories, environment versions, and an exact
+   dependency lock.
 
-We tested swarms from 4 to 150 agents (all untrained, to isolate architectural effects):
+Until then, SEESWM is best understood as an experimental framework and source
+of testable hypotheses, not evidence that collective intelligence has emerged.
 
-| Agents | Params | Reward | Messages/step | Finding |
-|--------|--------|--------|---------------|---------|
-| 4 | 417K | 1.09 | 12 | Baseline |
-| 10 | 1.04M | **1.24** | 30 | **Peak performance** |
-| 20 | 2.09M | 1.04 | 60 | Still efficient |
-| 50 | 5.21M | 1.01 | 150 | Slight decline |
-| 100 | 10.4M | 0.80 | 300 | Coordination breakdown begins |
-| 150 | 15.6M | 0.85 | 450 | High variance |
+## License
 
-**Key Findings:**
-1. **Performance peaks at 10-20 agents** for untrained swarms
-2. **Phase transitions** detected at 10, 20, 50, and 100 agents
-3. **Coordination overhead scales O(n)** - 3 messages per agent per step
-4. **Without training, larger swarms struggle** - this underscores the value of learned coordination
-
-The scaling trend follows: `reward ~ -0.096 * log(agents)` (R² = 0.70) for random initialization. This means **training is essential** - the architectural advantage doesn't come for free.
-
----
-
-## What Didn't Work
-
-**Fully-connected topologies failed.** Early experiments with all-to-all messaging caused coordination collapse. With N agents each sending to N-1 others, message volume scaled O(N²) and agents couldn't learn to filter signal from noise. Small-world topology (average degree ~4) was necessary for stable coordination. This suggests the communication bottleneck isn't a bug but a feature: it forces agents to compress and prioritize information.
-
-**Homogeneous agent types underperformed.** When all agents shared the same architecture (no perception/reasoning/memory/planning split), specialization still emerged but was weaker (SI ~0.05 vs 0.12 with architectural diversity). The inductive biases matter.
-
-**Random message content hurt more than no messages.** Ablating message passing entirely caused ~10% performance drop. But replacing learned messages with random noise caused ~25% drop. Agents learn to rely on message structure; corrupting it is worse than removing it.
-
----
-
-## Why Does This Work? (Hypothesis)
-
-We don't yet have a complete theoretical explanation, but we hypothesize:
-
-**The message-passing bottleneck acts as an information bottleneck.** Agents can't share raw hidden states; they must compress observations into discrete messages. This forces each agent to learn what information is relevant to transmit, analogous to how biological neural pathways evolved limited bandwidth. The compression may prevent overfitting and encourage learning of transferable abstractions.
-
-**Specialization emerges from credit assignment.** In a monolithic network, gradients flow uniformly. In a swarm, agents that contribute useful messages receive stronger learning signals (via policy gradient). This creates a natural pressure toward division of labor: agents that are "good at" perceiving get reinforced for perception, creating a feedback loop toward specialization.
-
-These are hypotheses, not results. Testing them requires measuring mutual information between observations and messages vs. observations and hidden states. We haven't done that yet.
-
----
-
-## Limitations (What's Missing for Publication)
-
-**Single environment.** All results come from one 64x64 grid world. We don't know if findings transfer to environments with different coordination demands, continuous action spaces, or partial observability structures.
-
-**Untrained scaling curves.** The scaling table shows random initialization behavior. We don't know if the 10-agent peak holds after training, or if trained 100-agent swarms learn to coordinate where untrained ones fail.
-
-**Weak baselines.** The "single agent" baseline is a random-init MLP. Cohen's d = 5.22 against random init is less impressive than it sounds. A fair comparison needs:
-- Trained single agent with equivalent compute budget
-- Standard MARL baselines (QMIX, MAPPO, COMA)
-- Ablations on topology (small-world vs ring vs hierarchical vs random)
-
-**Unverified theory.** The information bottleneck hypothesis is stated but not tested. "Message passing forces compression" is plausible, but we haven't measured whether it's actually happening.
-
-**One task structure.** Survival/foraging doesn't require tight coordination. An environment where agents must share learned representations (not just observations) to succeed would be a stronger test.
-
----
-
-## What's Next
-
-The hypothesis has initial support. To make it publication-ready:
-
-1. **Harder environments**: Tasks requiring information sharing to succeed, not just parallel foraging
-2. **Trained scaling curves**: Does the 10-agent peak hold after 1000 epochs? Train at 4/10/20/50/100 agents
-3. **Real baselines**: QMIX, MAPPO, COMA comparisons with matched compute
-4. **Topology ablations**: Small-world vs ring vs hierarchical vs random graphs
-5. **Information bottleneck measurement**: Actually compute MI(observations, messages) vs MI(observations, hidden states)
-6. **Trained single-agent comparison**: Give a 2M parameter MLP the same training budget
-
-The core question: Does swarm coordination provide advantages that can't be replicated by a well-trained monolith?
-
----
-
-## References
-
-1. LeCun, Y. (2022). A Path Towards Autonomous Machine Intelligence. *Meta AI*.
-2. Stanley, K. O., & Miikkulainen, R. (2002). Evolving Neural Networks through Augmenting Topologies. *Evolutionary Computation*.
-3. Williams, P. L., & Beer, R. D. (2010). Nonnegative Decomposition of Multivariate Information. *arXiv*.
-4. Tishby, N., & Zaslavsky, N. (2015). Deep Learning and the Information Bottleneck Principle. *IEEE Information Theory Workshop*.
-5. Lowe, R., Wu, Y., Tamar, A., Harb, J., Abbeel, P., & Mordatch, I. (2017). Multi-Agent Actor-Critic for Mixed Cooperative-Competitive Environments. *NeurIPS*.
-6. Foerster, J., Assael, I. A., de Freitas, N., & Whiteson, S. (2016). Learning to Communicate with Deep Multi-Agent Reinforcement Learning. *NeurIPS*.
-
----
-
-MIT License
+[MIT](LICENSE). This project is not affiliated with or endorsed by any cited
+researcher, institution, benchmark, or model provider.

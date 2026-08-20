@@ -1,17 +1,18 @@
 # Core ML
-torch>=2.0.0
+torch>=2.10.0,<3.0
 numpy>=1.24.0
 
 # Graph operations
 networkx>=3.0
+scipy>=1.10.0
 
 # Configuration
 pyyaml>=6.0
-hydra-core>=1.3.0
 
 # Visualization
 matplotlib>=3.7.0
 pygame>=2.5.0  # For environment rendering
+scikit-learn>=1.2.0  # Clustering and PCA in analysis utilities
 
 # Testing
 pytest>=7.0.0
@@ -19,7 +20,3 @@ pytest-cov>=4.0.0
 
 # Utilities
 tqdm>=4.65.0
-tensorboard>=2.12.0
-
-# Type hints
-typing-extensions>=4.5.0

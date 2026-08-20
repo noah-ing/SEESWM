@@ -1,8 +1,9 @@
-"""
-Comparison Baselines.
+"""Untrained baseline-shape diagnostics.
 
-Implements baseline models that the swarm must outperform to validate
-the collective intelligence hypothesis.
+The models in this module are freshly initialized. Their rollouts can exercise
+evaluation plumbing, but cannot validate a collective-intelligence hypothesis.
+Credible comparisons require separately trained controls with matched data,
+optimization, parameter, and compute budgets.
 """
 
 import torch
@@ -275,7 +276,7 @@ class BaselineComparison:
         self.results: Dict[str, BaselineResult] = {}
 
     def create_baselines(self) -> Dict[str, nn.Module]:
-        """Create all baseline models."""
+        """Create freshly initialized diagnostic baseline models."""
         baselines = {}
 
         # Single large agent (same params)
@@ -321,7 +322,10 @@ class BaselineComparison:
         verbose: bool = True,
     ) -> Dict[str, BaselineResult]:
         """
-        Compare swarm against all baselines.
+        Compare a swarm against fresh, untrained diagnostic baselines.
+
+        These descriptive smoke-test outputs are not a trained performance
+        benchmark or evidence of architectural superiority.
 
         Args:
             num_seeds: Number of random seeds
@@ -394,7 +398,7 @@ class BaselineComparison:
         """Generate summary report."""
         lines = [
             "\n" + "=" * 70,
-            "BASELINE COMPARISON SUMMARY",
+            "UNTRAINED BASELINE DIAGNOSTIC SUMMARY",
             "=" * 70,
             "",
             f"Swarm: {self.num_agents} agents, {self.total_params:,} parameters",
@@ -411,18 +415,16 @@ class BaselineComparison:
                 f"{result.p_value:>9.4f}{sig}"
             )
 
-        # Overall assessment
+        # Descriptive count only; these controls have not been trained.
         lines.append("-" * 70)
 
         must_beat = ['single_agent', 'ensemble', 'independent', 'centralized']
         beaten = sum(1 for name in must_beat if name in self.results and self.results[name].delta > 0)
 
-        if beaten == len(must_beat):
-            verdict = "PASS: Swarm outperforms all required baselines"
-        elif beaten >= len(must_beat) - 1:
-            verdict = "MARGINAL: Swarm beats most baselines"
-        else:
-            verdict = "FAIL: Swarm does not consistently outperform baselines"
+        verdict = (
+            f"Descriptive only: swarm scored higher than {beaten}/{len(must_beat)} "
+            "freshly initialized controls; no superiority claim is supported"
+        )
 
         lines.extend(["", verdict, "=" * 70])
 

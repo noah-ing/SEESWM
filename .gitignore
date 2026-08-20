@@ -21,9 +21,17 @@ wheels/
 *.egg
 
 # Virtual environments
+.venv/
 venv/
 ENV/
 env/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
 
 # IDE
 .idea/
@@ -46,6 +54,9 @@ logs/
 checkpoints/
 results/models/
 results/validation/
+results/validation-local/
+results/behavioral-local/
+results/*.local.json
 
 # OS
 .DS_Store

@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "seeswm"
 version = "0.1.0"
-description = "Self-Evolving Embodied Swarm-World-Modeler AGI Prototype"
+description = "Research prototype for specialized neural agents, graph message passing, and checkpoint diagnostics in a simulated grid world"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "SEESWM Team"}
+    {name = "Noah Ingwers"}
 ]
-keywords = ["agi", "swarm-intelligence", "world-model", "neuromorphic"]
+keywords = ["multi-agent-systems", "swarm-intelligence", "world-model", "research"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -23,12 +23,18 @@ classifiers = [
 ]
 
 dependencies = [
-    "torch>=2.0.0",
+    "torch>=2.10.0,<3.0",
     "numpy>=1.24.0",
     "networkx>=3.0",
+    "scipy>=1.10.0",
     "pyyaml>=6.0",
     "tqdm>=4.65.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/noah-ing/SEESWM"
+Issues = "https://github.com/noah-ing/SEESWM/issues"
+Security = "https://github.com/noah-ing/SEESWM/security"
 
 [project.optional-dependencies]
 dev = [
@@ -37,6 +43,9 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.0.270",
 ]
+analysis = [
+    "scikit-learn>=1.2.0",
+]
 viz = [
     "matplotlib>=3.7.0",
     "pygame>=2.5.0",
@@ -44,7 +53,8 @@ viz = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["src*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

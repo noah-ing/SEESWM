@@ -1,9 +1,10 @@
 """
-Synergy Measurement using Information-Theoretic Methods.
+Exploratory information-decomposition approximations.
 
-This module implements Partial Information Decomposition (PID) to measure
-true synergy in collective systems. Synergy is information that the collective
-provides about the target that no individual agent provides.
+The public names are retained for compatibility, but the implementations use
+finite-sample mutual-information estimators and simplified or pairwise
+approximations. They are not a formal multivariate PID implementation and a
+positive score is not, by itself, evidence of emergence.
 
 Key concepts:
 - Redundancy: Information shared by multiple agents
@@ -31,7 +32,7 @@ class SynergyDecomposition:
     # Decomposition components
     redundancy: float  # Shared information
     unique: List[float]  # Per-agent unique information
-    synergy: float  # Emergent collective information
+    synergy: float  # Residual under the selected approximation
 
     # Derived metrics
     synergy_ratio: float  # synergy / total_mi
@@ -77,9 +78,10 @@ class MutualInformationEstimator:
 
     def _ksg_estimator(self, x: np.ndarray, y: np.ndarray, k: int = 3) -> float:
         """
-        Kraskov-Stögbauer-Grassberger estimator.
+        KSG-inspired nearest-neighbor approximation.
 
-        Based on: "Estimating Mutual Information" (Kraskov et al., 2004)
+        This implementation does not reproduce every metric and boundary
+        convention of the reference KSG estimator.
         """
         from scipy.spatial import cKDTree
 
@@ -154,7 +156,7 @@ class MutualInformationEstimator:
             return 0.0
 
     def _binning_estimator(self, x: np.ndarray, y: np.ndarray, bins: int = 10) -> float:
-        """Simple binning-based MI estimation."""
+        """Simple first-component histogram MI estimate."""
         if x.ndim == 1:
             x = x.reshape(-1, 1)
         if y.ndim == 1:
@@ -187,7 +189,7 @@ class MutualInformationEstimator:
 
 class PartialInformationDecomposition:
     """
-    Compute Partial Information Decomposition.
+    Compute exploratory information-decomposition approximations.
 
     Decomposes the total mutual information I(X1, ..., Xn; Y) into:
     - Redundancy: Information all agents share
@@ -237,7 +239,7 @@ class PartialInformationDecomposition:
 
         Synergy = I(X1,...,Xn; Y) - Σ I(Xi; Y)
 
-        This is a lower bound on true synergy.
+        This is a heuristic residual, not a formal multivariate PID estimate.
         """
         n_agents = len(agent_outputs)
 
@@ -277,9 +279,9 @@ class PartialInformationDecomposition:
         targets: np.ndarray,
     ) -> SynergyDecomposition:
         """
-        BROJA (Bertschinger et al.) PID estimator.
+        Legacy ``broja`` option using a pairwise residual approximation.
 
-        Uses bivariate redundancy measure.
+        This does not implement the BROJA optimization procedure.
         """
         # For computational efficiency, use pairwise approximation
         n_agents = len(agent_outputs)
@@ -332,9 +334,9 @@ class PartialInformationDecomposition:
         targets: np.ndarray,
     ) -> SynergyDecomposition:
         """
-        Williams-Beer PID using I_min.
+        Legacy ``williams`` option using minimum marginal MI as redundancy.
 
-        The original PID framework.
+        This is a simplified residual calculation, not a full PID lattice.
         """
         # Use minimum mutual information as redundancy
         individual_mi = [
@@ -468,7 +470,7 @@ def compute_true_synergy(
     device: str = 'cpu',
 ) -> float:
     """
-    Convenience function to compute synergy score.
+    Compatibility wrapper for the selected approximate decomposition score.
 
     Args:
         swarm: The swarm model
@@ -477,7 +479,7 @@ def compute_true_synergy(
         device: Device
 
     Returns:
-        Synergy value (positive = emergent collective intelligence)
+        Approximate residual score; interpret only under the declared estimator.
     """
     inputs, targets = task_data
     measurer = SynergyMeasurer(swarm, pid_method=method, device=device)

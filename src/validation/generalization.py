@@ -120,6 +120,11 @@ class ZeroShotTransfer(GeneralizationTest):
                         action_logits = model.step(obs_tensor)
                     else:
                         action_logits = model(obs_tensor)
+                    if action_logits.ndim != 2 or action_logits.shape[-1] != 5:
+                        raise ValueError(
+                            "generalization evaluation requires a complete five-action "
+                            "policy, not a latent swarm representation"
+                        )
                     action = action_logits.argmax(dim=-1).item()
 
                 # Environment returns 3 values: observations, rewards, dones
